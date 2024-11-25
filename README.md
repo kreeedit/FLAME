@@ -1,2 +1,1 @@
-# FLAME
-Formulaic Language Analysis in Medieval Expressions
+Formulaic Language Analysis in Medieval Expressions (FLAME)
