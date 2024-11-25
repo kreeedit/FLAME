@@ -54,4 +54,4 @@ python flame.py --corpus_tsv medieval_texts.tsv --keep_texts 50 --visualize --pl
 ```
 
 ## License
-MIT License
+Apache
