@@ -1,3 +1,3 @@
 # FLAME - Formulaic Language Analysis in Medieval Expressions
 
-<img src="flame-little-flame.gif" width="400" />
+<img src="flame-little-flame.gif" width="200" />
