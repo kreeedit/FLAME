@@ -97,11 +97,6 @@ The generated HTML report includes:
 - Interactive diff view
 - Similarity scores and statistics
 - Mobile-responsive design
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ## License
 
 Apache 2.0
