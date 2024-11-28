@@ -1,8 +1,10 @@
 # FLAME - Formulaic Language Analysis in Medieval Expressions
 
-FLAME is a Python-based tool designed for analyzing textual similarities in (medieval) manuscripts and documents. It specializes in detecting formulaic language patterns using n-gram and skip-gram analysis techniques, with support for medieval text preprocessing and normalization.
+FLAME is a Python-based tool designed for analyzing textual similarities in (medieval) manuscripts and documents. It specializes in detecting formulaic language patterns using modified n-gram and skip-gram techniques, with support for medieval text preprocessing and normalization.
 
-<img src="flame-little-flame.gif" width="200" />
+<p align="center">
+  <img src="flame-little-flame.gif" width="200" />
+</p>
 
 ## Features
 
@@ -97,11 +99,6 @@ The generated HTML report includes:
 - Interactive diff view
 - Similarity scores and statistics
 - Mobile-responsive design
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ## License
 
 Apache 2.0
