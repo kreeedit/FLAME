@@ -6,13 +6,17 @@ from difflib import SequenceMatcher
 from IPython.display import display
 import re
 import plotly.graph_objects as go
+import os
+import pathlib
 
 # Configuration
 DEFAULT_PARAMS = {
-    'corpus_tsv': 'corpus.tsv',
-    'keep_texts': 200,
+    'input_path': './testdir',  # Directory containing text files
+    'file_suffix': '.txt',    # File suffix to look for
+    'keep_texts': 200,        # Maximum number of texts to analyze
     'ngram': 5,
     'n_out': 1,
+    'min_text_length': 50     # Minimum text length to consider
 }
 
 class TextSimilarityAnalyzer:
@@ -23,6 +27,27 @@ class TextSimilarityAnalyzer:
         self.corpus = None
         self.tokenized_corpus = None
         self.dist_mat = None
+        self.file_paths = []  # Store file paths for reference
+
+    def find_text_files(self):
+        """Recursively find all text files with specified suffix in directory."""
+        path = pathlib.Path(self.args.input_path)
+        if not path.exists():
+            raise ValueError(f"Input path {path} does not exist")
+
+        return list(path.rglob(f"*{self.args.file_suffix}"))
+
+    def read_text_file(self, file_path):
+        """Read and clean text from a file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text = f.read().strip()
+                # Basic cleaning - remove extra whitespace
+                text = ' '.join(text.split())
+                return text
+        except Exception as e:
+            print(f"Warning: Could not read file {file_path}: {str(e)}")
+            return None
 
     def tokenize(self, text_str):
         """Split text into tokens."""
@@ -72,11 +97,27 @@ class TextSimilarityAnalyzer:
         return intersection_size / union_size if union_size > 0 else 0
 
     def load_corpus(self):
-        """Load and preprocess the corpus."""
-        corpus = open(self.args.corpus_tsv).read().split('\n')
-        corpus = [line.split('\t')[0] for line in corpus if len(line.split('\t')) > 1]
-        corpus = [c for c in corpus if len(c) > 50]
-        self.corpus = corpus[:self.args.keep_texts]
+        """Load and preprocess the corpus from text files."""
+        # Find all text files
+        file_paths = self.find_text_files()
+        print(f"Found {len(file_paths)} files with suffix {self.args.file_suffix}")
+
+        # Read and filter texts
+        corpus = []
+        valid_file_paths = []
+
+        for file_path in tqdm.tqdm(file_paths, desc="Loading files"):
+            text = self.read_text_file(file_path)
+            if text and len(text) >= self.args.min_text_length:
+                corpus.append(text)
+                valid_file_paths.append(file_path)
+
+                if len(corpus) >= self.args.keep_texts:
+                    break
+
+        print(f"Loaded {len(corpus)} valid texts")
+        self.corpus = corpus
+        self.file_paths = valid_file_paths
         self.tokenized_corpus = [self.tokenize(text) for text in self.corpus]
         self.encoder = self.get_encoder(self.corpus)
 
@@ -91,36 +132,91 @@ class TextSimilarityAnalyzer:
 class SimilarityVisualizer:
     @staticmethod
     def highlight_similarities(text1, text2, pair_id):
-        """Highlight similar portions between two texts with interactive elements."""
+        """Highlight similar portions and bridge words between two texts with interactive elements."""
         matcher = SequenceMatcher(None, text1, text2)
         highlighted_text1 = []
         highlighted_text2 = []
 
         match_id = 0
         matches = {}
+        bridge_sections = []
+
+        # Get all matching blocks first to analyze potential bridges
+        matching_blocks = list(matcher.get_matching_blocks())
+
+        # Find potential bridge words between matches
+        for idx in range(len(matching_blocks) - 1):
+            curr_match = matching_blocks[idx]
+            next_match = matching_blocks[idx + 1]
+
+            # Calculate the gap between matches in both texts
+            gap1_start = curr_match[0] + curr_match[2]
+            gap1_end = next_match[0]
+            gap2_start = curr_match[1] + curr_match[2]
+            gap2_end = next_match[1]
+
+            gap1_words = text1[gap1_start:gap1_end]
+            gap2_words = text2[gap2_start:gap2_end]
+
+            # Check if gaps are 1-3 words and are identical except for punctuation
+            if (1 <= len(gap1_words) <= 3 and 1 <= len(gap2_words) <= 3):
+                # Remove punctuation for comparison
+                gap1_text = ' '.join(gap1_words).strip(',.')
+                gap2_text = ' '.join(gap2_words).strip(',.')
+
+                if gap1_text == gap2_text:
+                    bridge_sections.append({
+                        'pos1': (gap1_start, gap1_end),
+                        'pos2': (gap2_start, gap2_end),
+                        'text': gap1_text
+                    })
 
         pos1 = pos2 = 0
-        for i1, i2, size in matcher.get_matching_blocks():
+        bridge_idx = 0
+
+        for i1, i2, size in matching_blocks:
             if size == 0:
                 continue
 
             # Add non-matching portions before match
             if pos1 < i1:
-                highlighted_text1.append(' '.join(text1[pos1:i1]))
+                # Check if this section contains a bridge
+                is_bridge = False
+                for bridge in bridge_sections:
+                    if bridge['pos1'][0] >= pos1 and bridge['pos1'][1] <= i1:
+                        bridge_text = ' '.join(text1[bridge['pos1'][0]:bridge['pos1'][1]])
+                        highlighted_text1.append(
+                            f'<span class="bridge-words" data-bridge-id="{bridge_idx}">{bridge_text}</span>'
+                        )
+                        bridge_idx += 1
+                        is_bridge = True
+
+                if not is_bridge:
+                    highlighted_text1.append(' '.join(text1[pos1:i1]))
+
             if pos2 < i2:
-                highlighted_text2.append(' '.join(text2[pos2:i2]))
+                # Similar bridge check for text2
+                is_bridge = False
+                for bridge in bridge_sections:
+                    if bridge['pos2'][0] >= pos2 and bridge['pos2'][1] <= i2:
+                        bridge_text = ' '.join(text2[bridge['pos2'][0]:bridge['pos2'][1]])
+                        highlighted_text2.append(
+                            f'<span class="bridge-words" data-bridge-id="{bridge_idx-1}">{bridge_text}</span>'
+                        )
+                        is_bridge = True
+
+                if not is_bridge:
+                    highlighted_text2.append(' '.join(text2[pos2:i2]))
 
             # Add matching portions with pair-specific IDs
             match_text1 = ' '.join(text1[i1:i1+size])
             match_text2 = ' '.join(text2[i2:i2+size])
 
-            # Create clickable highlight in text1
             highlighted_text1.append(
                 f'<span class="highlight clickable" data-match-id="{match_id}" data-pair-id="{pair_id}">'
                 f'{match_text1}</span>'
             )
 
-            # Create normal text with highlightable span in text2
             highlighted_text2.append(
                 f'<span class="match-text" data-match-id="{match_id}" data-pair-id="{pair_id}">'
                 f'{match_text2}</span>'
@@ -146,8 +242,8 @@ class SimilarityVisualizer:
         return ' '.join(highlighted_text1), ' '.join(highlighted_text2), matches
 
     @staticmethod
-    def generate_comparison_html(corpus, dist_mat, similarity_threshold=0.1):
-        """Generate interactive HTML comparison of similar text pairs."""
+    def generate_comparison_html(analyzer, similarity_threshold=0.1):
+        """Generate interactive HTML comparison of similar text pairs with a single bridge words toggle."""
         html_template = """
         <html>
         <head>
@@ -209,11 +305,54 @@ class SimilarityVisualizer:
                     background-color: #ffe066;
                     box-shadow: 0 0 0 2px #ffd700;
                 }
+                .bridge-words {
+                    transition: background-color 0.3s ease;
+                    padding: 0 2px;
+                    border-radius: 3px;
+                }
+                .bridge-words.highlighted {
+                    background-color: #ffcdd2;
+                }
+                #toggle-all-bridge-words {
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 10px 20px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    transition: background-color 0.3s;
+                    z-index: 1000;
+                }
+                #toggle-all-bridge-words:hover {
+                    background-color: #45a049;
+                }
+                #toggle-all-bridge-words.active {
+                    background-color: #f44336;
+                }
             </style>
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
                     // Store active highlights for each text pair
                     const activeHighlights = new Map();
+
+                    // Add single bridge words toggle button
+                    const toggleButton = document.getElementById('toggle-all-bridge-words');
+                    toggleButton.addEventListener('click', function() {
+                        this.classList.toggle('active');
+                        const bridgeWords = document.querySelectorAll('.bridge-words');
+
+                        bridgeWords.forEach(word => {
+                            word.classList.toggle('highlighted');
+                        });
+
+                        // Update button text
+                        this.textContent = this.classList.contains('active')
+                            ? 'Hide All Bridge Words'
+                            : 'Show All Bridge Words';
+                    });
 
                     document.addEventListener('click', function(e) {
                         const clickedHighlight = e.target.closest('.highlight');
@@ -282,36 +421,40 @@ class SimilarityVisualizer:
         </head>
         <body>
             <h2>Interactive Text Similarity Comparison</h2>
+            <button id="toggle-all-bridge-words">Show All Bridge Words</button>
             <p style="color: #666; margin-bottom: 20px;">
                 Click on highlighted text in the left column to see matching sections in the right column.
-                Click again to hide the matching highlight.
+                Use the toggle button to show/hide bridge word highlighting (1-3 words connecting similar sections).
             </p>
         """
 
-        with open("text_comparisons.html", "w") as f:
+        with open("text_comparisons.html", "w", encoding='utf-8') as f:
             f.write(html_template)
+            pair_id = 0
 
-            analyzer = TextSimilarityAnalyzer()  # Create temporary instance for tokenization
-            pair_id = 0  # Add unique ID for each text pair
-
-            for i in range(len(corpus)):
-                for j in range(i + 1, len(corpus)):
-                    if dist_mat[i, j] >= similarity_threshold:
-                        text1_tokens = analyzer.tokenize(corpus[i])
-                        text2_tokens = analyzer.tokenize(corpus[j])
+            for i in range(len(analyzer.corpus)):
+                for j in range(i + 1, len(analyzer.corpus)):
+                    if analyzer.dist_mat[i, j] >= similarity_threshold:
+                        text1_tokens = analyzer.tokenize(analyzer.corpus[i])
+                        text2_tokens = analyzer.tokenize(analyzer.corpus[j])
                         highlighted_text1, highlighted_text2, matches = SimilarityVisualizer.highlight_similarities(
                             text1_tokens, text2_tokens, pair_id
                         )
 
+                        filename1 = str(analyzer.file_paths[i].name)
+                        filename2 = str(analyzer.file_paths[j].name)
+
                         comparison_html = f"""
-                        <h3>Text {i+1} vs Text {j+1}</h3>
-                        <div class="similarity-score">Similarity: {dist_mat[i, j]:.2f}</div>
+                        <h3>Comparing Files:</h3>
+                        <div class="similarity-score">Similarity: {analyzer.dist_mat[i, j]:.2f}</div>
+                        <p>File 1: {filename1}</p>
+                        <p>File 2: {filename2}</p>
                         <div class="comparison-container" data-pair-id="{pair_id}">
                             <div class="text-box">
-                                <strong>Text {i+1}:</strong><br>{highlighted_text1}
+                                <strong>{filename1}:</strong><br>{highlighted_text1}
                             </div>
                             <div class="text-box">
-                                <strong>Text {j+1}:</strong><br>{highlighted_text2}
+                                <strong>{filename2}:</strong><br>{highlighted_text2}
                             </div>
                         </div>
                         """
@@ -321,21 +464,24 @@ class SimilarityVisualizer:
             f.write("</body></html>")
 
     @staticmethod
-    def plot_similarity_heatmap(dist_mat, corpus):
+    def plot_similarity_heatmap(analyzer):
         """Generate interactive heatmap visualization."""
+        # Create labels using filenames instead of generic "Text N"
+        labels = [str(path.name) for path in analyzer.file_paths]
+
         fig = go.Figure(data=go.Heatmap(
-            z=dist_mat,
-            x=[f"Text {i+1}" for i in range(len(corpus))],
-            y=[f"Text {i+1}" for i in range(len(corpus))],
+            z=analyzer.dist_mat,
+            x=labels,
+            y=labels,
             colorscale='YlOrRd',
             colorbar=dict(title='Similarity (IoU)'),
         ))
 
         fig.update_layout(
             title='Text Similarity Heatmap',
-            xaxis_title='Texts',
-            yaxis_title='Texts',
-            xaxis=dict(showgrid=False),
+            xaxis_title='Files',
+            yaxis_title='Files',
+            xaxis=dict(showgrid=False, tickangle=45),
             yaxis=dict(showgrid=False),
         )
 
@@ -359,8 +505,8 @@ def main():
 
     # Generate visualizations
     visualizer = SimilarityVisualizer()
-    visualizer.plot_similarity_heatmap(analyzer.dist_mat, analyzer.corpus)
-    visualizer.generate_comparison_html(analyzer.corpus, analyzer.dist_mat)
+    visualizer.plot_similarity_heatmap(analyzer)
+    visualizer.generate_comparison_html(analyzer)
 
 if __name__ == '__main__':
     main()
