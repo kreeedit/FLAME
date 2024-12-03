@@ -494,14 +494,22 @@ class SimilarityVisualizer:
         """Generate interactive heatmap visualization."""
         # Create labels using filenames instead of generic "Text N"
         labels = [str(path.name) for path in analyzer.file_paths]
-
         fig = go.Figure(data=go.Heatmap(
             z=analyzer.dist_mat,
             x=labels,
             y=labels,
-            colorscale='YlOrRd',
-            colorbar=dict(title='Similarity (IoU)'),
-        ))
+            # Use Blues colorscale starting from white
+            colorscale=[
+                [0, 'rgb(255,255,255)'],    # white for lowest values
+                [0.2, 'rgb(220,230,242)'],  # very light blue
+                [0.4, 'rgb(158,202,225)'],  # light blue
+                [0.6, 'rgb(49,130,189)'],   # medium blue
+                [1.0, 'rgb(8,48,107)']      # dark blue
+        ],
+        colorbar=dict(title='Similarity (IoU)'),
+        # Only show values above a certain threshold
+        zmin=0.3,  # Adjust this threshold as needed
+    ))
 
         fig.update_layout(
             title='Text Similarity Heatmap',
@@ -509,6 +517,8 @@ class SimilarityVisualizer:
             yaxis_title='Files',
             xaxis=dict(showgrid=False, tickangle=45),
             yaxis=dict(showgrid=False),
+            plot_bgcolor='white',
+            paper_bgcolor='white'
         )
 
         fig.write_html("similarity_heatmap.html")
