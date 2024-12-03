@@ -16,7 +16,8 @@ DEFAULT_PARAMS = {
     'keep_texts': 200,        # Maximum number of texts to analyze
     'ngram': 4,
     'n_out': 1,
-    'min_text_length': 100     # Minimum text length to consider
+    'min_text_length': 100,     # Minimum text length to consider
+    'similarity_threshold': 0.1 # Minimum similarity threshold for comparison
 }
 
 class TextSimilarityAnalyzer:
@@ -241,8 +242,11 @@ class SimilarityVisualizer:
         return ' '.join(highlighted_text1), ' '.join(highlighted_text2), matches
 
     @staticmethod
-    def generate_comparison_html(analyzer, similarity_threshold=0.1):
+    def generate_comparison_html(analyzer, similarity_threshold=None):
         """Generate interactive HTML comparison of similar text pairs with scroll synchronization."""
+        # Use the threshold from analyzer params if none provided
+        if similarity_threshold is None:
+            similarity_threshold = analyzer.args.similarity_threshold
         html_template = """
         <html>
         <head>
