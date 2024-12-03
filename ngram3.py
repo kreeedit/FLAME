@@ -14,9 +14,9 @@ DEFAULT_PARAMS = {
     'input_path': './testdir',  # Directory containing text files
     'file_suffix': '.txt',    # File suffix to look for
     'keep_texts': 200,        # Maximum number of texts to analyze
-    'ngram': 5,
+    'ngram': 4,
     'n_out': 1,
-    'min_text_length': 50     # Minimum text length to consider
+    'min_text_length': 100     # Minimum text length to consider
 }
 
 class TextSimilarityAnalyzer:
@@ -50,8 +50,11 @@ class TextSimilarityAnalyzer:
             return None
 
     def tokenize(self, text_str):
-        """Split text into tokens."""
-        return text_str.split()  # todo: implement a better tokenizer
+        """Split text into tokens after removing periods, commas, and semicolons."""
+        # Remove the specified punctuation marks
+        for punct in ['.', ',', ';']:
+            text_str = text_str.replace(punct, '')
+        return text_str.split()
 
     def get_encoder(self, corpus):
         """Create a token-to-integer encoder from corpus."""
@@ -132,19 +135,19 @@ class TextSimilarityAnalyzer:
 class SimilarityVisualizer:
     @staticmethod
     def highlight_similarities(text1, text2, pair_id):
-        """Highlight similar portions and bridge words between two texts with interactive elements."""
+        """Highlight similar portions and gap words between two texts with interactive elements."""
         matcher = SequenceMatcher(None, text1, text2)
         highlighted_text1 = []
         highlighted_text2 = []
 
         match_id = 0
         matches = {}
-        bridge_sections = []
+        gap_sections = []
 
-        # Get all matching blocks first to analyze potential bridges
+        # Get all matching blocks first to analyze potential gaps
         matching_blocks = list(matcher.get_matching_blocks())
 
-        # Find potential bridge words between matches
+        # Find gaps between matches
         for idx in range(len(matching_blocks) - 1):
             curr_match = matching_blocks[idx]
             next_match = matching_blocks[idx + 1]
@@ -155,24 +158,21 @@ class SimilarityVisualizer:
             gap2_start = curr_match[1] + curr_match[2]
             gap2_end = next_match[1]
 
+            # Get the words in the gaps
             gap1_words = text1[gap1_start:gap1_end]
             gap2_words = text2[gap2_start:gap2_end]
 
-            # Check if gaps are 1-3 words and are identical except for punctuation
+            # If both gaps are 1-3 words, consider them as bridge sections
             if (1 <= len(gap1_words) <= 3 and 1 <= len(gap2_words) <= 3):
-                # Remove punctuation for comparison
-                gap1_text = ' '.join(gap1_words).strip(',.')
-                gap2_text = ' '.join(gap2_words).strip(',.')
-
-                if gap1_text == gap2_text:
-                    bridge_sections.append({
-                        'pos1': (gap1_start, gap1_end),
-                        'pos2': (gap2_start, gap2_end),
-                        'text': gap1_text
-                    })
+                gap_sections.append({
+                    'pos1': (gap1_start, gap1_end),
+                    'pos2': (gap2_start, gap2_end),
+                    'text1': gap1_words,
+                    'text2': gap2_words
+                })
 
         pos1 = pos2 = 0
-        bridge_idx = 0
+        gap_idx = 0
 
         for i1, i2, size in matching_blocks:
             if size == 0:
@@ -180,35 +180,35 @@ class SimilarityVisualizer:
 
             # Add non-matching portions before match
             if pos1 < i1:
-                # Check if this section contains a bridge
-                is_bridge = False
-                for bridge in bridge_sections:
-                    if bridge['pos1'][0] >= pos1 and bridge['pos1'][1] <= i1:
-                        bridge_text = ' '.join(text1[bridge['pos1'][0]:bridge['pos1'][1]])
+                gap_found = False
+                for gap in gap_sections:
+                    if gap['pos1'][0] == pos1 and gap['pos1'][1] == i1:
+                        gap_text = ' '.join(text1[gap['pos1'][0]:gap['pos1'][1]])
                         highlighted_text1.append(
-                            f'<span class="bridge-words" data-bridge-id="{bridge_idx}">{bridge_text}</span>'
+                            f'<span class="bridge-words" data-bridge-id="{gap_idx}">{gap_text}</span>'
                         )
-                        bridge_idx += 1
-                        is_bridge = True
+                        gap_idx += 1
+                        gap_found = True
+                        break
 
-                if not is_bridge:
+                if not gap_found:
                     highlighted_text1.append(' '.join(text1[pos1:i1]))
 
             if pos2 < i2:
-                # Similar bridge check for text2
-                is_bridge = False
-                for bridge in bridge_sections:
-                    if bridge['pos2'][0] >= pos2 and bridge['pos2'][1] <= i2:
-                        bridge_text = ' '.join(text2[bridge['pos2'][0]:bridge['pos2'][1]])
+                gap_found = False
+                for gap in gap_sections:
+                    if gap['pos2'][0] == pos2 and gap['pos2'][1] == i2:
+                        gap_text = ' '.join(text2[gap['pos2'][0]:gap['pos2'][1]])
                         highlighted_text2.append(
-                            f'<span class="bridge-words" data-bridge-id="{bridge_idx-1}">{bridge_text}</span>'
+                            f'<span class="bridge-words" data-bridge-id="{gap_idx-1}">{gap_text}</span>'
                         )
-                        is_bridge = True
+                        gap_found = True
+                        break
 
-                if not is_bridge:
+                if not gap_found:
                     highlighted_text2.append(' '.join(text2[pos2:i2]))
 
-            # Add matching portions with pair-specific IDs
+            # Add matching portions
             match_text1 = ' '.join(text1[i1:i1+size])
             match_text2 = ' '.join(text2[i2:i2+size])
 
@@ -216,7 +216,6 @@ class SimilarityVisualizer:
                 f'<span class="highlight clickable" data-match-id="{match_id}" data-pair-id="{pair_id}">'
                 f'{match_text1}</span>'
             )
-
             highlighted_text2.append(
                 f'<span class="match-text" data-match-id="{match_id}" data-pair-id="{pair_id}">'
                 f'{match_text2}</span>'
@@ -243,7 +242,7 @@ class SimilarityVisualizer:
 
     @staticmethod
     def generate_comparison_html(analyzer, similarity_threshold=0.1):
-        """Generate interactive HTML comparison of similar text pairs with a single bridge words toggle."""
+        """Generate interactive HTML comparison of similar text pairs with scroll synchronization."""
         html_template = """
         <html>
         <head>
@@ -262,6 +261,7 @@ class SimilarityVisualizer:
                     padding: 20px;
                     border-radius: 8px;
                     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    position: relative;
                 }
                 .text-box {
                     flex: 1;
@@ -269,6 +269,9 @@ class SimilarityVisualizer:
                     border: 1px solid #ddd;
                     border-radius: 5px;
                     background-color: #fff;
+                    height: 500px;  /* Fixed height */
+                    overflow-y: auto;  /* Enable vertical scrolling */
+                    position: relative;  /* For scroll positioning */
                 }
                 h2 { color: #333; margin-bottom: 20px; }
                 h3 { color: #444; margin-bottom: 15px; }
@@ -297,6 +300,7 @@ class SimilarityVisualizer:
                     padding: 0 2px;
                     border-radius: 3px;
                     transition: background-color 0.3s ease;
+                    scroll-margin: 100px;  /* Adds margin for scrolling */
                 }
                 .match-text.active {
                     background-color: #fff3b8;
@@ -343,15 +347,10 @@ class SimilarityVisualizer:
                     toggleButton.addEventListener('click', function() {
                         this.classList.toggle('active');
                         const bridgeWords = document.querySelectorAll('.bridge-words');
-
                         bridgeWords.forEach(word => {
                             word.classList.toggle('highlighted');
                         });
-
-                        // Update button text
-                        this.textContent = this.classList.contains('active')
-                            ? 'Hide All Bridge Words'
-                            : 'Show All Bridge Words';
+                        this.textContent = this.classList.contains('active') ? 'Hide All Bridge Words' : 'Show All Bridge Words';
                     });
 
                     document.addEventListener('click', function(e) {
@@ -372,21 +371,22 @@ class SimilarityVisualizer:
                         // If this pair already has an active highlight
                         if (activeHighlights.has(pairId)) {
                             const activeMatchId = activeHighlights.get(pairId);
-
                             // If clicking the same highlight, reset it
                             if (activeMatchId === matchId) {
                                 resetHighlights(matchId, pairId);
                                 activeHighlights.delete(pairId);
                                 return;
                             }
-
                             // If clicking a different highlight in the same pair, reset the old one
                             resetHighlights(activeMatchId, pairId);
                         }
 
-                        // Show new highlight
+                        // Show new highlight and scroll to match
                         showHighlight(matchId, pairId);
                         activeHighlights.set(pairId, matchId);
+
+                        // Scroll the right text box to align with the clicked highlight
+                        scrollToMatch(matchId, pairId);
                     });
 
                     function showHighlight(matchId, pairId) {
@@ -416,6 +416,31 @@ class SimilarityVisualizer:
                             target.classList.remove('active');
                         }
                     }
+
+                    function scrollToMatch(matchId, pairId) {
+                        const sourceElement = document.querySelector(
+                            `.highlight[data-match-id="${matchId}"][data-pair-id="${pairId}"]`
+                        );
+                        const targetElement = document.querySelector(
+                            `.match-text[data-match-id="${matchId}"][data-pair-id="${pairId}"]`
+                        );
+
+                        if (sourceElement && targetElement) {
+                            const container = targetElement.closest('.text-box');
+                            const sourceRect = sourceElement.getBoundingClientRect();
+                            const containerRect = container.getBoundingClientRect();
+
+                            // Calculate the scroll position to align the target with the source
+                            const scrollTop = container.scrollTop + targetElement.getBoundingClientRect().top -
+                                            containerRect.top - (sourceRect.top - containerRect.top);
+
+                            // Smooth scroll to the calculated position
+                            container.scrollTo({
+                                top: scrollTop,
+                                behavior: 'smooth'
+                            });
+                        }
+                    }
                 });
             </script>
         </head>
@@ -424,6 +449,7 @@ class SimilarityVisualizer:
             <button id="toggle-all-bridge-words">Show All Bridge Words</button>
             <p style="color: #666; margin-bottom: 20px;">
                 Click on highlighted text in the left column to see matching sections in the right column.
+                The right column will automatically scroll to align with the clicked section.
                 Use the toggle button to show/hide bridge word highlighting (1-3 words connecting similar sections).
             </p>
         """
