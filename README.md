@@ -16,21 +16,21 @@ Consider the medieval charter opening: "In nomine sancte et individue trinitatis
 6. Identify and visualize matching patterns
 
 ## Method comparsion
-### N-gram (n=5) Analysis
+### N-gram (n=5)
 | Input Text | Generated N-grams | Matches Original? |
 |------------|------------------|-------------------|
 | "In nomine sancte et individue" | [In nomine sancte et individue] | Yes |
 | "In dei nomine sancte et" | [In dei nomine sancte et] | No |
 | "In nomine sancte trinitatis amen" | [In nomine sancte trinitatis amen] | No |
 
-### Skip-gram (k=2) Analysis
+### Skip-gram (k=2)
 | Input Text | Generated Skip-grams | Matches Original? |
 |------------|---------------------|-------------------|
 | "In nomine sancte et individue" | [In sancte], [In et], [nomine individue], etc. | Partial |
 | "In dei nomine sancte et" | [In nomine], [In sancte], [dei et], etc. | Partial |
 | "In nomine sancte trinitatis amen" | [In sancte], [nomine trinitatis], etc. | Partial |
 
-### Leave-n-out N-gram Analysis
+### Leave-n-out N-gram
 | Input Text | Generated Patterns (n=1, k=5) | Match Score | 
 |------------|------------------------------|--------------|
 | "In nomine sancte et individue" | [_ nomine sancte et individue] | 0.92 |
