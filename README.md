@@ -12,21 +12,22 @@ The LNO-ngram approach works as follows:
 2. For each n-gram, create variants by removing n tokens (where 1 ≤ n < k)
 Consider the medieval charter opening: "In nomine sancte et individue trinitatis amen"
 
-## N-gram (n=5) Analysis
+## Method comparsion
+### N-gram (n=5) Analysis
 | Input Text | Generated N-grams | Matches Original? |
 |------------|------------------|-------------------|
 | "In nomine sancte et individue" | [In nomine sancte et individue] | Yes |
 | "In dei nomine sancte et" | [In dei nomine sancte et] | No |
 | "In nomine sancte trinitatis amen" | [In nomine sancte trinitatis amen] | No |
 
-## Skip-gram (k=2) Analysis
+### Skip-gram (k=2) Analysis
 | Input Text | Generated Skip-grams | Matches Original? |
 |------------|---------------------|-------------------|
 | "In nomine sancte et individue" | [In sancte], [In et], [nomine individue], etc. | Partial |
 | "In dei nomine sancte et" | [In nomine], [In sancte], [dei et], etc. | Partial |
 | "In nomine sancte trinitatis amen" | [In sancte], [nomine trinitatis], etc. | Partial |
 
-## Leave-n-out N-gram Analysis
+### Leave-n-out N-gram Analysis
 | Input Text | Generated Patterns (n=1, k=5) | Match Score | 
 |------------|------------------------------|--------------|
 | "In nomine sancte et individue" | [_ nomine sancte et individue] | 0.92 |
