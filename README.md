@@ -1,6 +1,6 @@
 # FLAME - Formulaic Language Analysis in Medieval Expressions
 
-FLAME is a Python-based tool for identifying and analyzing formulaic expressions in medieval texts using an enhanced Leave-N-Out (LNO) n-gram approach. This method is particularly effective for detecting variant forms of formulaic expressions that differ due to scribal variations, regional differences, or dialectal changes.
+FLAME is a Python-based tool for identifying and analyzing formulaic expressions in medieval texts using an enhanced Leave-N-Out (LNO) n-gram approach. This method is particularly effective for detecting variant forms of formulaic expressions that differ due to scribal variations, regional differences, or dialectal changes. [View Text Comparisons demo](text_comparisons.html)
 
 <p align="center">
   <img src="flame-little-flame.gif" width="200" />
@@ -114,7 +114,7 @@ FLAME generates three types of output:
 - Interactive tooltips showing exact similarity values
 - Adjustable threshold for focusing on high-similarity pairs
 
-### Text Comparison View
+### Text Comparison View, see [demo].text_comparisons.html)
 - Side-by-side text comparison
 - Click-to-highlight matching sections
 - Automatic scrolling alignment
