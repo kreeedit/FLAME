@@ -33,7 +33,7 @@ Where:
 - n: number of tokens in the sequence
 - k: number of tokens to skip (for skip-grams)
 - r: number of tokens to remove (for LNO-grams)
-- 
+
 Note: For Leave-n-out patterns, '...' indicates additional patterns with underscore (_) in different positions. Match scores indicate similarity to the original formula structure.
 
 
