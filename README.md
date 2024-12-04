@@ -25,7 +25,7 @@ Consider the medieval charter opening: "In nomine sancte et individue trinitatis
 | Skip-gram (k=2) | In nomine sancte et individue | [In sancte], [In et], [nomine individue] | 0.4 | Partial matches, loses context |
 | | In dei nomine sancte et | [In nomine], [In sancte], [dei et] | 0.3 | Partial matches |
 | | In nomine sancte trinitatis amen | [In sancte], [nomine trinitatis] | 0.3 | Partial matches |
-| Leave-n-out (n=1, k=5) | In nomine sancte et individue | [_ nomine sancte et individue] ... [In nomine sancte et _] | 0.92 | High flexibility |
+| Leave-n-out (n=5, k=1) | In nomine sancte et individue | [_ nomine sancte et individue] ... [In nomine sancte et _] | 0.92 | High flexibility |
 | | In dei nomine sancte et | [_ dei nomine sancte et] ... [In dei nomine sancte _] | 0.85 | Captures variants |
 | | In nomine sancte trinitatis amen | [_ nomine sancte trinitatis amen] ... [In nomine sancte trinitatis _] | 0.88 | Preserves context |
 
