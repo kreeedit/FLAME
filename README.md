@@ -11,6 +11,9 @@ The LNO-ngram approach works as follows:
 1. Generate n-grams of specified length (k) from input texts
 2. For each n-gram, create variants by removing n tokens (where 1 ≤ n < k)
 Consider the medieval charter opening: "In nomine sancte et individue trinitatis amen"
+4. Convert tokens to integers for efficient comparison
+5. Calculate Intersection over Union (IoU) similarity between texts
+6. Identify and visualize matching patterns
 
 ## Method comparsion
 ### N-gram (n=5) Analysis
@@ -45,9 +48,7 @@ Consider the medieval charter opening: "In nomine sancte et individue trinitatis
 | | [In nomine _ trinitatis amen] | | |
 | | [In nomine sancte _ amen] | | |
 | | [In nomine sancte trinitatis _] | | |
-4. Convert tokens to integers for efficient comparison
-5. Calculate Intersection over Union (IoU) similarity between texts
-6. Identify and visualize matching patterns
+
 
 ## Features
 
