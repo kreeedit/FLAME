@@ -16,38 +16,20 @@ Consider the medieval charter opening: "In nomine sancte et individue trinitatis
 6. Identify and visualize matching patterns
 
 ## Method comparsion
-### N-gram (n=5)
-| Input Text | Generated N-grams | Matches Original? |
-|------------|------------------|-------------------|
-| "In nomine sancte et individue" | [In nomine sancte et individue] | Yes |
-| "In dei nomine sancte et" | [In dei nomine sancte et] | No |
-| "In nomine sancte trinitatis amen" | [In nomine sancte trinitatis amen] | No |
 
-### Skip-gram (k=2)
-| Input Text | Generated Skip-grams | Matches Original? |
-|------------|---------------------|-------------------|
-| "In nomine sancte et individue" | [In sancte], [In et], [nomine individue], etc. | Partial |
-| "In dei nomine sancte et" | [In nomine], [In sancte], [dei et], etc. | Partial |
-| "In nomine sancte trinitatis amen" | [In sancte], [nomine trinitatis], etc. | Partial |
+| Method | Input Text | Generated Patterns | Match Score | Notes |
+|--------|------------|-------------------|-------------|--------|
+| N-gram (n=5) | In nomine sancte et individue | [In nomine sancte et individue] | 1.0 | Perfect match |
+| | In dei nomine sancte et | [In dei nomine sancte et] | 0.0 | No match |
+| | In nomine sancte trinitatis amen | [In nomine sancte trinitatis amen] | 0.0 | No match |
+| Skip-gram (k=2) | In nomine sancte et individue | [In sancte], [In et], [nomine individue] | 0.4 | Partial matches, loses context |
+| | In dei nomine sancte et | [In nomine], [In sancte], [dei et] | 0.3 | Partial matches |
+| | In nomine sancte trinitatis amen | [In sancte], [nomine trinitatis] | 0.3 | Partial matches |
+| Leave-n-out (n=1, k=5) | In nomine sancte et individue | [_ nomine sancte et individue] ... [In nomine sancte et _] | 0.92 | High flexibility |
+| | In dei nomine sancte et | [_ dei nomine sancte et] ... [In dei nomine sancte _] | 0.85 | Captures variants |
+| | In nomine sancte trinitatis amen | [_ nomine sancte trinitatis amen] ... [In nomine sancte trinitatis _] | 0.88 | Preserves context |
 
-### Leave-n-out N-gram
-| Input Text | Generated Patterns (n=1, k=5) | Match Score | 
-|------------|------------------------------|--------------|
-| "In nomine sancte et individue" | [_ nomine sancte et individue] | 0.92 |
-| | [In _ sancte et individue] | | |
-| | [In nomine _ et individue] | | |
-| | [In nomine sancte _ individue] | | |
-| | [In nomine sancte et _] | | |
-| "In dei nomine sancte et" | [_ dei nomine sancte et] | 0.85 |
-| | [In _ nomine sancte et] | | |
-| | [In dei _ sancte et] | | |
-| | [In dei nomine _ et] | | |
-| | [In dei nomine sancte _] | | |
-| "In nomine sancte trinitatis amen" | [_ nomine sancte trinitatis amen] | 0.88 |
-| | [In _ sancte trinitatis amen] | | |
-| | [In nomine _ trinitatis amen] | | |
-| | [In nomine sancte _ amen] | | |
-| | [In nomine sancte trinitatis _] | | |
+Note: For Leave-n-out patterns, '...' indicates additional patterns with underscore (_) in different positions. Match scores indicate similarity to the original formula structure.
 
 
 ## Features
