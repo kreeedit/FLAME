@@ -9,7 +9,7 @@ FLAME is a Python-based tool for identifying and analyzing formulaic expressions
 The LNO-ngram approach works as follows:
 
 1. Generate n-grams of specified length (k) from input texts
-2. For each n-gram, create variants by removing n tokens (where 1 ≤ n < k)
+2. For each n-gram, create variants by removing n tokens (where 1 ≤ r < n)
 Consider the medieval charter opening: "In nomine sancte et individue trinitatis amen"
 4. Convert tokens to integers for efficient comparison
 5. Calculate Intersection over Union (IoU) similarity between texts
@@ -22,13 +22,18 @@ Consider the medieval charter opening: "In nomine sancte et individue trinitatis
 | N-gram (n=5) | In nomine sancte et individue | [In nomine sancte et individue] | 1.0 | Perfect match |
 | | In dei nomine sancte et | [In dei nomine sancte et] | 0.0 | No match |
 | | In nomine sancte trinitatis amen | [In nomine sancte trinitatis amen] | 0.0 | No match |
-| Skip-gram (k=2) | In nomine sancte et individue | [In sancte], [In et], [nomine individue] | 0.4 | Partial matches, loses context |
-| | In dei nomine sancte et | [In nomine], [In sancte], [dei et] | 0.3 | Partial matches |
-| | In nomine sancte trinitatis amen | [In sancte], [nomine trinitatis] | 0.3 | Partial matches |
-| Leave-n-out (n=5, k=1) | In nomine sancte et individue | [_ nomine sancte et individue] ... [In nomine sancte et _] | 0.92 | High flexibility |
+| Skip-gram (n=2, k=1) | In nomine sancte et individue | [In sancte], [nomine et], [sancte individue] | 0.4 | Partial matches |
+| | In dei nomine sancte et | [In nomine], [dei sancte], [nomine et] | 0.3 | Partial matches |
+| | In nomine sancte trinitatis amen | [In sancte], [nomine trinitatis], [sancte amen] | 0.3 | Partial matches |
+| LNO-gram (n=5, r=1) | In nomine sancte et individue | [_ nomine sancte et individue] ... [In nomine sancte et _] | 0.92 | High flexibility |
 | | In dei nomine sancte et | [_ dei nomine sancte et] ... [In dei nomine sancte _] | 0.85 | Captures variants |
 | | In nomine sancte trinitatis amen | [_ nomine sancte trinitatis amen] ... [In nomine sancte trinitatis _] | 0.88 | Preserves context |
 
+Where:
+- n: number of tokens in the sequence
+- k: number of tokens to skip (for skip-grams)
+- r: number of tokens to remove (for LNO-grams)
+- 
 Note: For Leave-n-out patterns, '...' indicates additional patterns with underscore (_) in different positions. Match scores indicate similarity to the original formula structure.
 
 
