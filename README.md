@@ -103,7 +103,7 @@ FLAME generates three types of output:
 - Interactive tooltips showing exact similarity values
 - Adjustable threshold for focusing on high-similarity pairs
 
-### Text Comparison View, see [demo].text_comparisons.html)
+### Text Comparison View, see text_comparisons.html
 - Side-by-side text comparison
 - Click-to-highlight matching sections
 - Automatic scrolling alignment
