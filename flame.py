@@ -20,7 +20,7 @@ DEFAULT_PARAMS = {
     'similarity_threshold': 0.1 # Minimum similarity threshold for comparison
 }
 
-class TextSimilarityAnalyzer:
+class Flame:
     def __init__(self, params=None):
         self.params = params or DEFAULT_PARAMS
         self.args, _ = fargv.fargv(self.params)
@@ -526,7 +526,7 @@ class SimilarityVisualizer:
 
 def main():
     # Initialize analyzer
-    analyzer = TextSimilarityAnalyzer()
+    analyzer = Flame()
 
     # Validate parameters
     if analyzer.args.n_out >= analyzer.args.ngram - 1:
