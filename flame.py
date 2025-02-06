@@ -13,7 +13,7 @@ import pathlib
 DEFAULT_PARAMS = {
     'input_path': './testdir',  # Directory containing text files
     'file_suffix': '.txt',    # File suffix to look for
-    'keep_texts': 200,        # Maximum number of texts to analyze
+    'keep_texts': 2000,        # Maximum number of texts to analyze
     'ngram': 4,
     'n_out': 1,
     'min_text_length': 100,     # Minimum text length to consider
@@ -241,11 +241,12 @@ class SimilarityVisualizer:
         return ' '.join(highlighted_text1), ' '.join(highlighted_text2), matches
 
     @staticmethod
-    def generate_comparison_html(analyzer, similarity_threshold=None):
-        """Generate interactive HTML comparison of similar text pairs."""
+    def generate_comparison_html(analyzer, similarity_threshold=None, max_file_size=20 * 1024 * 1024):
+        """Generate interactive HTML comparison of similar text pairs, splitting output if necessary."""
         if similarity_threshold is None:
             similarity_threshold = analyzer.args.similarity_threshold
         html_template = """
+        <!DOCTYPE html>
         <html>
         <head>
             <style>
@@ -420,27 +421,15 @@ class SimilarityVisualizer:
                     }
 
                     function scrollToMatch(matchId, pairId) {
-                        const sourceElement = document.querySelector(
-                            `.highlight[data-match-id="${matchId}"][data-pair-id="${pairId}"]`
-                        );
                         const targetElement = document.querySelector(
                             `.match-text[data-match-id="${matchId}"][data-pair-id="${pairId}"]`
                         );
 
-                        if (sourceElement && targetElement) {
+                        if (targetElement) {
                             const container = targetElement.closest('.text-box');
-                            const sourceRect = sourceElement.getBoundingClientRect();
-                            const containerRect = container.getBoundingClientRect();
 
-                            // Calculate the scroll position to align the target with the source
-                            const scrollTop = container.scrollTop + targetElement.getBoundingClientRect().top -
-                                            containerRect.top - (sourceRect.top - containerRect.top);
-
-                            // Smooth scroll to the calculated position
-                            container.scrollTo({
-                                top: scrollTop,
-                                behavior: 'smooth'
-                            });
+                            // Scroll to the target element within its container
+                            container.scrollTop = targetElement.offsetTop - container.offsetTop;
                         }
                     }
                 });
@@ -456,40 +445,61 @@ class SimilarityVisualizer:
             </p>
         """
 
-        with open("text_comparisons.html", "w", encoding='utf-8') as f:
-            f.write(html_template)
-            pair_id = 0
+        file_counter = 1
+        current_file_content = html_template
+        current_file_size = 0
 
-            for i in range(len(analyzer.corpus)):
-                for j in range(i + 1, len(analyzer.corpus)):
-                    if analyzer.dist_mat[i, j] >= similarity_threshold:
-                        text1_tokens = analyzer.tokenize(analyzer.corpus[i])
-                        text2_tokens = analyzer.tokenize(analyzer.corpus[j])
-                        highlighted_text1, highlighted_text2, matches = SimilarityVisualizer.highlight_similarities(
-                            text1_tokens, text2_tokens, pair_id
-                        )
+        def write_to_file(content, counter):
+            filename = f"text_comparisons{counter:02d}.html"
+            with open(filename, "w", encoding='utf-8') as f:
+                f.write(content)
+                f.write("</body></html>")
+            print(f"Generated {filename}")
 
-                        filename1 = str(analyzer.file_paths[i].name)
-                        filename2 = str(analyzer.file_paths[j].name)
 
-                        comparison_html = f"""
-                        <h3>Comparing Files:</h3>
-                        <div class="similarity-score">Similarity: {analyzer.dist_mat[i, j]:.2f}</div>
-                        <p>File 1: {filename1}</p>
-                        <p>File 2: {filename2}</p>
-                        <div class="comparison-container" data-pair-id="{pair_id}">
-                            <div class="text-box">
-                                <strong>{filename1}:</strong><br>{highlighted_text1}
-                            </div>
-                            <div class="text-box">
-                                <strong>{filename2}:</strong><br>{highlighted_text2}
-                            </div>
+        pair_id = 0
+        for i in range(len(analyzer.corpus)):
+            for j in range(i + 1, len(analyzer.corpus)):
+                if analyzer.dist_mat[i, j] >= similarity_threshold:
+                    text1_tokens = analyzer.tokenize(analyzer.corpus[i])
+                    text2_tokens = analyzer.tokenize(analyzer.corpus[j])
+                    highlighted_text1, highlighted_text2, matches = SimilarityVisualizer.highlight_similarities(
+                        text1_tokens, text2_tokens, pair_id
+                    )
+
+                    filename1 = str(analyzer.file_paths[i].name)
+                    filename2 = str(analyzer.file_paths[j].name)
+
+                    comparison_html = f"""
+                    <h3>Comparing Files:</h3>
+                    <div class="similarity-score">Similarity: {analyzer.dist_mat[i, j]:.2f}</div>
+                    <p>File 1: {filename1}</p>
+                    <p>File 2: {filename2}</p>
+                    <div class="comparison-container" data-pair-id="{pair_id}">
+                        <div class="text-box">
+                            <strong>{filename1}:</strong><br>{highlighted_text1}
                         </div>
-                        """
-                        f.write(comparison_html)
-                        pair_id += 1
+                        <div class="text-box">
+                            <strong>{filename2}:</strong><br>{highlighted_text2}
+                        </div>
+                    </div>
+                    """
+                    encoded_html = comparison_html.encode('utf-8')
+                    if current_file_size + len(encoded_html) > max_file_size:
+                        write_to_file(current_file_content, file_counter)
+                        file_counter += 1
+                        current_file_content = html_template  # Start a new file with the template
+                        current_file_size = len(html_template.encode('utf-8'))
 
-            f.write("</body></html>")
+                    current_file_content += comparison_html
+                    current_file_size += len(encoded_html)
+                    pair_id += 1
+
+        # Write any remaining content to the last file
+        if current_file_size > len(html_template.encode('utf-8')):  # Check if we added any comparisons
+             write_to_file(current_file_content, file_counter)
+
+
 
     @staticmethod
     def plot_similarity_heatmap(analyzer):
