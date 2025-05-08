@@ -44,6 +44,7 @@ Note: For Leave-n-out patterns, '...' indicates additional patterns with undersc
 - **Flexible Pattern Matching**: Identifies variant forms of formulaic expressions across different manuscript traditions
 - **Configurable Parameters**: Easily adjust analysis settings through command-line arguments
 - **Recursive File Processing**: Automatically processes all text files in a directory and its subdirectories
+- **TSV output**:  That shows the frequency of found similarities per document and lists the related documents.
 
 ## Installation
 
@@ -95,6 +96,7 @@ FLAME generates three types of output:
    - Bridge words between similar sections
    - Similarity scores for each text pair
    - File source information
+4. **TSV output** (similarity_summary.tsv): Tabular representation of text similarities
 
 ## Visualization Features
 
