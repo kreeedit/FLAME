@@ -98,6 +98,13 @@ FLAME generates three types of output:
    - File source information
 4. **TSV output** (similarity_summary.tsv): Tabular representation of text similarities
 
+| DocumentFilename          | SimilarityFrequency | RelatedDocuments     | LongSimilarities(&gt;4words)                                                                                                |
+|---------------------------|---------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `docA.txt`                | 2                   | `docB.txt`, `docC.txt` | `"this is a very long common phrase"` \| `"another shared piece of text"` \| `"a slightly different common part"`            |
+| `docB.txt`                | 1                   | `docA.txt`           | `"this is a very long common phrase"` \| `"another shared piece of text"`                                                     |
+| `docC.txt`                | 1                   | `docA.txt`           | `"this is a very long common phrase"` \| `"a slightly different common part"`                                                 |
+| `docD.txt`                | 0                   | `None`               | `None`                                                                                                                      |
+
 ## Visualization Features
 
 ### Heatmap View
