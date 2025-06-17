@@ -45,6 +45,11 @@ Note: For Leave-n-out patterns, '...' indicates additional patterns with undersc
 - **Configurable Parameters**: Easily adjust analysis settings through command-line arguments
 - **Recursive File Processing**: Automatically processes all text files in a directory and its subdirectories
 - **TSV output**:  That shows the frequency of found similarities per document and lists the related documents.
+- **GUI version**
+
+<p align="center">
+  <img src="flame_gui.png" width="400" />
+</p>
 
 ## Installation
 
