@@ -1,574 +1,215 @@
-import numpy as np
-from itertools import combinations
-import fargv
-import re
-import plotly.graph_objects as go
-import os
-import pathlib
-from difflib import SequenceMatcher
-from IPython.display import display # Keep for original compatibility, but unused in GUI
-
-# GUI Imports
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, scrolledtext, ttk
 import threading
 import queue
-import webbrowser
 import sys
-
-# Fargv
-DEFAULT_PARAMS = {
-    'input_path': './',
-    'file_suffix': '.txt',
-    'keep_texts': 2000,
-    'ngram': 5,
-    'n_out': 1,
-    'min_text_length': 100,
-    'similarity_threshold': 0.1
-}
-
-class Flame:
-    def __init__(self, params=None, log_callback=print):
-        self.params = params or DEFAULT_PARAMS
-        self.args, _ = fargv.fargv(self.params)
-        self.log_callback = log_callback
-        self.encoder = None
-        self.corpus = None
-        self.tokenized_corpus = None
-        self.dist_mat = None
-        self.file_paths = []
-
-    def _tqdm_wrapper(self, iterable, desc="Processing"):
-        """A wrapper to provide progress updates"""
-        try:
-            total = len(iterable)
-            self.log_callback(f"{desc}: Starting with {total} items.")
-            for i, item in enumerate(iterable):
-                # Log progress roughly every 5% or for key milestones
-                if total > 20 and i > 0 and i % (total // 20) == 0:
-                    self.log_callback(f"... {desc}: {i}/{total} ({(i/total*100):.0f}%) complete.")
-                yield item
-            self.log_callback(f"{desc}: Finished {total} items.")
-        except TypeError: # If iterable has no len()
-            self.log_callback(f"{desc}: Starting...")
-            for item in iterable:
-                yield item
-            self.log_callback(f"{desc}: Finished.")
+from flame import Flame, DEFAULT_PARAMS, SimilarityVisualizer
 
 
-    def find_text_files(self):
-        path = pathlib.Path(self.args.input_path)
-        if not path.exists():
-            raise ValueError(f"Input path {path} does not exist")
-        return list(path.rglob(f"*{self.args.file_suffix}"))
+class FlameGUI(tk.Tk):
+    """
+    A Tkinter-based graphical user interface for the FLAME analysis tool.
 
-    def read_text_file(self, file_path):
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                text = f.read().strip()
-                text = ' '.join(text.split())
-                return text
-        except Exception as e:
-            self.log_callback(f"Warning: Could not read file {file_path}: {str(e)}")
-            return None
+    This class creates a window with input fields for all analysis parameters,
+    a button to start the analysis, and a log window to display progress
+    and results, making the tool accessible without using the command line.
+    """
+    def __init__(self):
+        """Initializes the main application window and its components."""
+        super().__init__()
+        self.title("FLAME - Formulaic Language Analysis in Medieval Expressions")
+        self.geometry("900x750")
 
-    def tokenize(self, text_str):
-        clean_text = text_str
-        for punct in ['.', ',', ';', '[', ']', '(', ')']:
-            clean_text = clean_text.replace(punct, '')
-        return clean_text.split()
+        # Create Tkinter StringVars to hold the values of the parameters from the GUI.
+        # This allows easy access and modification of GUI input values.
+        self.params = {key: tk.StringVar(value=str(val)) for key, val in DEFAULT_PARAMS.items()}
 
-    def get_encoder(self, corpus_for_encoding):
-        all_tokens = []
-        for text in self._tqdm_wrapper(corpus_for_encoding, desc="Building vocabulary"):
-            tokens = self.tokenize(text)
-            all_tokens.extend(tokens)
-        unique_tokens = sorted(list(set(all_tokens)))
-        return {token: i for i, token in enumerate(unique_tokens)}
-
-    def tokens_to_int(self, tokens):
-        return [self.encoder[token] for token in tokens if token in self.encoder]
-
-    def leave_n_out_grams(self, tokens):
-        int_tokens = np.array(self.tokens_to_int(tokens))
-        if int_tokens.size == 0: return np.array([])
-        seq_len = len(int_tokens)
-        elements_to_keep = self.args.ngram - self.args.n_out
-        if elements_to_keep < 1 or seq_len < self.args.ngram: return np.array([])
-        num_ngrams = seq_len - self.args.ngram + 1
-        if num_ngrams <= 0: return np.array([])
-
-        sub_ngrams_matrix = np.zeros((self.args.ngram, num_ngrams), dtype=int_tokens.dtype)
-        for i in range(self.args.ngram):
-            sub_ngrams_matrix[i, :] = int_tokens[i : i + num_ngrams]
-
-        keep_indices_combinations = list(combinations(range(self.args.ngram), elements_to_keep))
-        lnout_grams_list = []
-        if not self.encoder or not len(self.encoder): return np.array([])
-        vocab_size = len(self.encoder)
-
-        for combo_indices in keep_indices_combinations:
-            combined_int_values = np.zeros(num_ngrams, dtype=np.int64)
-            for i, original_idx in enumerate(combo_indices):
-                combined_int_values += sub_ngrams_matrix[original_idx, :] * (vocab_size ** i)
-            lnout_grams_list.append(combined_int_values)
-
-        return np.concatenate(lnout_grams_list, axis=0) if lnout_grams_list else np.array([])
-
-    def calculate_distance(self, text1_tokens, text2_tokens):
-        ngrams1 = self.leave_n_out_grams(text1_tokens)
-        ngrams2 = self.leave_n_out_grams(text2_tokens)
-        if ngrams1.size == 0 or ngrams2.size == 0: return 0.0
-        intersection_size = np.intersect1d(ngrams1, ngrams2, assume_unique=False).shape[0]
-        union_size = np.union1d(ngrams1, ngrams2).shape[0]
-        return intersection_size / union_size if union_size > 0 else 0.0
-
-    def load_corpus(self):
-        file_paths = self.find_text_files()
-        self.log_callback(f"Found {len(file_paths)} files with suffix '{self.args.file_suffix}'.")
-        loaded_corpus_original_case, loaded_corpus_for_analysis, valid_file_paths = [], [], []
-
-        for file_path in self._tqdm_wrapper(file_paths, desc="Loading files"):
-            text = self.read_text_file(file_path)
-            if text and len(text) >= self.args.min_text_length:
-                loaded_corpus_original_case.append(text)
-                loaded_corpus_for_analysis.append(text.lower())
-                valid_file_paths.append(file_path)
-                if len(loaded_corpus_original_case) >= self.args.keep_texts:
-                    self.log_callback(f"Reached max limit of {self.args.keep_texts} texts.")
-                    break
-
-        if not loaded_corpus_original_case:
-            self.log_callback("No valid texts loaded. Aborting.")
-            self.corpus, self.tokenized_corpus, self.file_paths = [], [], []
-            return
-
-        self.log_callback(f"Loaded {len(loaded_corpus_original_case)} valid texts for analysis.")
-        self.corpus, self.file_paths = loaded_corpus_original_case, valid_file_paths
-        self.encoder = self.get_encoder(loaded_corpus_for_analysis)
-        if not self.encoder:
-            self.log_callback("Warning: Encoder could not be built (empty vocabulary).")
-        self.tokenized_corpus = [self.tokenize(text_lower) for text_lower in loaded_corpus_for_analysis]
-
-    def compute_similarity_matrix(self):
-        if not self.tokenized_corpus:
-            self.log_callback("Corpus is not tokenized or empty. Skipping similarity matrix.")
-            self.dist_mat = np.array([])
-            return
-        num_texts = len(self.tokenized_corpus)
-        self.dist_mat = np.zeros([num_texts, num_texts])
-
-        self.log_callback("Computing similarity matrix...")
-        for t1 in range(num_texts):
-            if num_texts > 10 and t1 % (num_texts // 10) == 0:
-                self.log_callback(f"... analyzing document {t1+1}/{num_texts}")
-            for t2 in range(num_texts):
-                if t1 == t2: self.dist_mat[t1, t2] = 1.0
-                elif t2 < t1: self.dist_mat[t1, t2] = self.dist_mat[t2, t1]
-                else: self.dist_mat[t1, t2] = self.calculate_distance(self.tokenized_corpus[t1], self.tokenized_corpus[t2])
-        self.log_callback("Similarity matrix computation complete.")
-        np.save('dist_mat.npy', self.dist_mat)
-        self.log_callback("Saved similarity matrix to dist_mat.npy")
-
-class SimilarityVisualizer:
-    @staticmethod
-    def highlight_similarities(text1_original_tokens, text2_original_tokens, pair_id):
-        text1_lower_tokens = [t.lower() for t in text1_original_tokens]
-        text2_lower_tokens = [t.lower() for t in text2_original_tokens]
-        matcher = SequenceMatcher(None, text1_lower_tokens, text2_lower_tokens, autojunk=False)
-        highlighted_html_text1, highlighted_html_text2, match_details = [], [], {}
-        bridge_word_sections = []
-        raw_matching_blocks = matcher.get_matching_blocks()
-
-        for idx in range(len(raw_matching_blocks) - 1):
-            current_block, next_block = raw_matching_blocks[idx], raw_matching_blocks[idx+1]
-            gap1_start_idx, gap1_end_idx = current_block[0] + current_block[2], next_block[0]
-            gap2_start_idx, gap2_end_idx = current_block[1] + current_block[2], next_block[1]
-            gap1_original_tokens, gap2_original_tokens = text1_original_tokens[gap1_start_idx:gap1_end_idx], text2_original_tokens[gap2_start_idx:gap2_end_idx]
-            if (1 <= len(gap1_original_tokens) <= 3 or 1 <= len(gap2_original_tokens) <= 3) and (len(gap1_original_tokens) > 0 or len(gap2_original_tokens) > 0):
-                bridge_word_sections.append({'text1_indices': (gap1_start_idx, gap1_end_idx), 'text2_indices': (gap2_start_idx, gap2_end_idx), 'text1_tokens': gap1_original_tokens, 'text2_tokens': gap2_original_tokens})
-
-        current_pos_text1, current_pos_text2, match_id_counter = 0, 0, 0
-        for a_start, b_start, length in raw_matching_blocks:
-            if length == 0: continue
-            if current_pos_text1 < a_start:
-                is_bridge = False
-                for bridge_idx, bridge in enumerate(bridge_word_sections):
-                    if bridge['text1_indices'][0] == current_pos_text1 and bridge['text1_indices'][1] == a_start:
-                        highlighted_html_text1.append(f'<span class="bridge-words" data-bridge-pair="{pair_id}-{bridge_idx}">{" ".join(bridge["text1_tokens"])}</span>')
-                        is_bridge = True; break
-                if not is_bridge: highlighted_html_text1.append(' '.join(text1_original_tokens[current_pos_text1:a_start]))
-            if current_pos_text2 < b_start:
-                is_bridge = False
-                for bridge_idx, bridge in enumerate(bridge_word_sections):
-                    if bridge['text2_indices'][0] == current_pos_text2 and bridge['text2_indices'][1] == b_start:
-                        highlighted_html_text2.append(f'<span class="bridge-words" data-bridge-pair="{pair_id}-{bridge_idx}">{" ".join(bridge["text2_tokens"])}</span>')
-                        is_bridge = True; break
-                if not is_bridge: highlighted_html_text2.append(' '.join(text2_original_tokens[current_pos_text2:b_start]))
-
-            match_display_text1 = ' '.join(text1_original_tokens[a_start : a_start + length])
-            highlighted_html_text1.append(f'<span class="highlight clickable" data-match-id="{match_id_counter}" data-pair-id="{pair_id}">{match_display_text1}</span>')
-            highlighted_html_text2.append(f'<span class="match-text" data-match-id="{match_id_counter}" data-pair-id="{pair_id}">{" ".join(text2_original_tokens[b_start : b_start + length])}</span>')
-            match_details[match_id_counter] = {'text1': match_display_text1, 'text2': ' '.join(text2_original_tokens[b_start : b_start + length])}
-            match_id_counter +=1
-            current_pos_text1, current_pos_text2 = a_start + length, b_start + length
-
-        if current_pos_text1 < len(text1_original_tokens): highlighted_html_text1.append(' '.join(text1_original_tokens[current_pos_text1:]))
-        if current_pos_text2 < len(text2_original_tokens): highlighted_html_text2.append(' '.join(text2_original_tokens[current_pos_text2:]))
-        return ' '.join(highlighted_html_text1), ' '.join(highlighted_html_text2), match_details
-
-    @staticmethod
-    def generate_comparison_html(analyzer, log_callback=print, similarity_threshold=None, max_file_size=20 * 1024 * 1024):
-        if similarity_threshold is None: similarity_threshold = analyzer.args.similarity_threshold
-        if analyzer.dist_mat is None or analyzer.dist_mat.size == 0 or not analyzer.corpus:
-            log_callback("Similarity matrix/corpus empty. Skipping HTML comparison generation.")
-            return
-
-        html_template_start = """
-        <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Text Similarity Comparison</title><style>body{font-family:Arial,sans-serif;margin:20px;line-height:1.6;background-color:#f5f5f5;color:#333}.comparison-block{margin-bottom:30px;background-color:white;padding:20px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,.1)}.comparison-container{display:flex;gap:20px}.text-box{flex:1;padding:15px;border:1px solid #ddd;border-radius:5px;background-color:#fff;height:400px;overflow-y:auto;position:relative;word-wrap:break-word}h2{color:#333;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px}h3{color:#444;margin-top:0;margin-bottom:10px;font-size:1.2em}.file-info{font-size:.9em;color:#555;margin-bottom:5px}.similarity-score{margin-bottom:15px;font-weight:700;color:#0056b3;padding:5px 10px;background-color:#e7f3ff;border-radius:4px;display:inline-block}.highlight{background-color:#fff3b8;padding:1px 3px;border-radius:3px;transition:background-color .2s ease}.highlight.clickable{cursor:pointer}.highlight.clickable:hover{background-color:#ffe066}.match-text{padding:1px 3px;border-radius:3px;transition:background-color .3s ease;scroll-margin-top:50px}.match-text.active{background-color:#fff3b8}.active-highlight{background-color:#ffe066;box-shadow:0 0 0 2px #ffd700}.bridge-words{padding:1px 3px;border-radius:3px;transition:background-color .3s ease}.bridge-words.highlighted{background-color:#ffcdd2}#controls{margin-bottom:20px;background-color:white;padding:15px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,.1)}#toggle-all-bridge-words{background-color:#28a745;color:white;padding:8px 15px;border:none;border-radius:4px;cursor:pointer;transition:background-color .3s}#toggle-all-bridge-words:hover{background-color:#218838}#toggle-all-bridge-words.active{background-color:#dc3545}.instructions{font-size:.9em;color:#666;margin-top:10px}</style></head><body><div id="controls"><h2>Interactive Text Similarity Comparison</h2><button id="toggle-all-bridge-words">Show All Bridge Words</button><p class="instructions">Click on a yellow highlighted text segment in the left column to see the corresponding segment in the right column. The right column will scroll to the match. Click again or outside to deselect. Use the toggle button to highlight/hide "bridge words" (short differing segments of 1-3 words between matches).</p></div>
-        """
-
-        # FIXED JAVASCRIPT
-        html_template_end = """
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    const activeHighlights = new Map();
-
-                    const toggleButton = document.getElementById('toggle-all-bridge-words');
-                    if (toggleButton) {
-                        toggleButton.addEventListener('click', function() {
-                            const isActive = this.classList.toggle('active');
-                            document.querySelectorAll('.bridge-words').forEach(span => {
-                                span.classList.toggle('highlighted', isActive);
-                            });
-                            this.textContent = isActive ? 'Hide All Bridge Words' : 'Show All Bridge Words';
-                        });
-                    }
-
-                    document.body.addEventListener('click', function(e) {
-                        const clickedElement = e.target;
-                        let processedClick = false;
-
-                        if (clickedElement.classList.contains('highlight') && clickedElement.classList.contains('clickable')) {
-                            const matchId = clickedElement.dataset.matchId;
-                            const pairId = clickedElement.dataset.pairId;
-                            processedClick = true;
-
-                            if (activeHighlights.has(pairId) && activeHighlights.get(pairId).matchId === matchId) {
-                                resetHighlightVisuals(pairId, activeHighlights.get(pairId).matchId);
-                                activeHighlights.delete(pairId);
-                            } else {
-                                if (activeHighlights.has(pairId)) {
-                                    resetHighlightVisuals(pairId, activeHighlights.get(pairId).matchId);
-                                }
-                                setHighlightVisuals(pairId, matchId, clickedElement);
-                                activeHighlights.set(pairId, {matchId: matchId, clickableElement: clickedElement});
-                                scrollToMatch(pairId, matchId);
-                            }
-                        }
-
-                        if (!processedClick && !clickedElement.closest('.highlight.clickable') && !clickedElement.closest('#toggle-all-bridge-words')) {
-                            activeHighlights.forEach((val, pairId) => resetHighlightVisuals(pairId, val.matchId));
-                            activeHighlights.clear();
-                        }
-                    });
-
-                    function setHighlightVisuals(pairId, matchId, clickableSpan) {
-                        if (clickableSpan) clickableSpan.classList.add('active-highlight');
-                        const targetMatchSpan = document.querySelector(`.match-text[data-pair-id="${pairId}"][data-match-id="${matchId}"]`);
-                        if (targetMatchSpan) targetMatchSpan.classList.add('active');
-                    }
-
-                    function resetHighlightVisuals(pairId, matchId) {
-                        const activePairInfo = activeHighlights.get(pairId);
-                        let clickableSpan = activePairInfo && activePairInfo.matchId === matchId ? activePairInfo.clickableElement : document.querySelector(`.highlight.clickable[data-pair-id="${pairId}"][data-match-id="${matchId}"]`);
-                        if (clickableSpan) clickableSpan.classList.remove('active-highlight');
-
-                        const targetMatchSpan = document.querySelector(`.match-text[data-pair-id="${pairId}"][data-match-id="${matchId}"]`);
-                        if (targetMatchSpan) targetMatchSpan.classList.remove('active');
-                    }
-
-                    function scrollToMatch(pairId, matchId) {
-                        const targetElement = document.querySelector(`.match-text[data-pair-id="${pairId}"][data-match-id="${matchId}"]`);
-                        if (targetElement) {
-                            const container = targetElement.closest('.text-box');
-                            if (container) {
-                                const targetRect = targetElement.getBoundingClientRect();
-                                const containerRect = container.getBoundingClientRect();
-                                const scrollOffset = targetRect.top - containerRect.top - (container.clientHeight / 2) + (targetRect.height / 2);
-                                container.scrollTop += scrollOffset;
-                            }
-                        }
-                    }
-                });
-            </script>
-        </body></html>
-        """
-        file_counter, current_file_content, current_file_size, pair_render_count = 1, html_template_start, len(html_template_start.encode('utf-8')), 0
-
-        def write_html_file(content, counter, end_template):
-            filename = f"text_comparisons_{counter:02d}.html"
-            with open(filename, "w", encoding='utf-8') as f:
-                f.write(content + end_template)
-            log_callback(f"Generated {filename}")
-
-        display_token_corpus = [analyzer.tokenize(text) for text in analyzer.corpus]
-        log_callback("Generating HTML comparison report(s)...")
-
-        for i in range(len(analyzer.corpus)):
-            for j in range(i + 1, len(analyzer.corpus)):
-                if analyzer.dist_mat[i, j] >= similarity_threshold:
-                    pair_render_count += 1
-                    text1_tokens, text2_tokens = display_token_corpus[i], display_token_corpus[j]
-                    h_html1, h_html2, _ = SimilarityVisualizer.highlight_similarities(text1_tokens, text2_tokens, pair_render_count)
-                    fname1, fname2 = str(analyzer.file_paths[i].name), str(analyzer.file_paths[j].name)
-
-                    comparison_html = f"""<div class="comparison-block" id="pair-{pair_render_count}"><h3>Comparison: {fname1} &harr; {fname2}</h3><div class="similarity-score">Similarity Score (IoU): {analyzer.dist_mat[i, j]:.4f}</div><div class="comparison-container" data-pair-id="{pair_render_count}"><div class="text-box"><p class="file-info"><strong>File 1: {fname1}</strong></p>{h_html1}</div><div class="text-box"><p class="file-info"><strong>File 2: {fname2}</strong></p>{h_html2}</div></div></div>"""
-                    encoded_segment = comparison_html.encode('utf-8')
-
-                    if (current_file_size + len(encoded_segment) + len(html_template_end.encode('utf-8'))) > max_file_size and current_file_size > len(html_template_start.encode('utf-8')):
-                        write_html_file(current_file_content, file_counter, html_template_end)
-                        file_counter += 1
-                        current_file_content, current_file_size = html_template_start, len(html_template_start.encode('utf-8'))
-
-                    current_file_content += comparison_html
-                    current_file_size += len(encoded_segment)
-
-        if pair_render_count > 0:
-            if current_file_size > len(html_template_start.encode('utf-8')):
-                write_html_file(current_file_content, file_counter, html_template_end)
-        else:
-            log_callback("No similar pairs found above the threshold to generate comparison HTML.")
-
-    @staticmethod
-    def plot_similarity_heatmap(analyzer, log_callback=print):
-        if analyzer.dist_mat is None or analyzer.dist_mat.size == 0 or not analyzer.file_paths:
-            log_callback("Similarity matrix/paths empty. Skipping heatmap generation.")
-            return
-        labels = [str(path.name) for path in analyzer.file_paths]
-        fig = go.Figure(data=go.Heatmap(z=analyzer.dist_mat, x=labels, y=labels, colorscale='Blues', colorbar=dict(title='Similarity (IoU)'), zmin=0.0, zmax=1.0))
-        fig.update_layout(title='Text Similarity Heatmap', xaxis_title='Files', yaxis_title='Files', xaxis=dict(showgrid=False, tickangle=-45, automargin=True, type='category'), yaxis=dict(showgrid=False, automargin=True, type='category'), plot_bgcolor='white', paper_bgcolor='white', height=max(600, len(labels) * 25 + 150), width=max(700, len(labels) * 25 + 150))
-        try:
-            fig.write_html("similarity_heatmap.html")
-            log_callback("Generated similarity_heatmap.html")
-        except Exception as e:
-            log_callback(f"Error writing heatmap: {e}")
-
-    @staticmethod
-    def generate_similarity_summary_tsv(analyzer, log_callback=print):
-        if analyzer.dist_mat is None or analyzer.dist_mat.size == 0 or not analyzer.corpus or not analyzer.file_paths:
-            log_callback("Data missing. Skipping TSV summary generation.")
-            return
-        output_filename = "similarity_summary.tsv"
-        header = "DocumentFilename\tSimilarityFrequency\tRelatedDocuments\tLongSimilarities(>4words)\n"
-        tsv_rows = [header]
-        num_docs = len(analyzer.corpus)
-        original_tokenized_corpus = [analyzer.tokenize(text) for text in analyzer.corpus]
-
-        log_callback("Generating TSV summary...")
-        for i in range(num_docs):
-            source_filename = str(analyzer.file_paths[i].name)
-            similarity_count, related_docs_list, all_long_segments = 0, [], []
-            tokens_i_original_case = original_tokenized_corpus[i]
-            tokens_i_lower = [t.lower() for t in tokens_i_original_case]
-
-            for j in range(num_docs):
-                if i == j: continue
-                if analyzer.dist_mat[i, j] >= analyzer.args.similarity_threshold:
-                    similarity_count += 1
-                    related_docs_list.append(str(analyzer.file_paths[j].name))
-                    tokens_j_lower = [t.lower() for t in original_tokenized_corpus[j]]
-                    sm = SequenceMatcher(None, tokens_i_lower, tokens_j_lower, autojunk=False)
-                    for a_start, _, size in sm.get_matching_blocks():
-                        if size > 4:
-                            all_long_segments.append((size, " ".join(tokens_i_original_case[a_start : a_start + size])))
-
-            all_long_segments.sort(key=lambda x: x[0], reverse=True)
-            unique_sorted_texts, seen_segments = [], set()
-            for _, text in all_long_segments:
-                if text not in seen_segments:
-                    unique_sorted_texts.append(f'"{text}"')
-                    seen_segments.add(text)
-            long_segments_str = " | ".join(unique_sorted_texts) if unique_sorted_texts else "None"
-            related_docs_str = ", ".join(sorted(list(set(related_docs_list)))) if related_docs_list else "None"
-            tsv_rows.append(f"{source_filename}\t{similarity_count}\t{related_docs_str}\t{long_segments_str}\n")
-
-        try:
-            with open(output_filename, "w", encoding='utf-8') as f:
-                f.writelines(tsv_rows)
-            log_callback(f"Generated {output_filename}")
-        except IOError as e:
-            log_callback(f"Error writing TSV summary file {output_filename}: {e}")
-
-
-# GUI Class
-class FlameGUI(tk.Frame):
-    def __init__(self, master):
-        super().__init__(master)
-        self.master = master
-        self.master.title("FLAME - Formulaic Language Analysis in Medieval Expressions")
-        self.master.geometry("800x750")
-
-        self.params = {}
-        self.output_files = {}
-
+        # Build the user interface.
         self.create_widgets()
 
+        # A queue is used for thread-safe communication between the analysis thread
+        # and the main GUI thread. Print statements will be put into this queue.
         self.log_queue = queue.Queue()
-        self.process_log_queue()
+        # Periodically check the queue for new messages to display.
+        self.after(100, self.process_log_queue)
 
     def create_widgets(self):
-        main_frame = ttk.Frame(self.master, padding="10")
+        """Creates and arranges all the widgets in the main window."""
+        # Use a main frame with padding for better aesthetics.
+        main_frame = ttk.Frame(self, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        params_frame = ttk.LabelFrame(main_frame, text="1. Configuration", padding="10")
-        params_frame.pack(fill=tk.X, expand=False)
-        params_frame.grid_columnconfigure(1, weight=1)
+        # Section 1: A frame for all input parameters.
+        params_frame = ttk.LabelFrame(main_frame, text="Analysis Parameters", padding="10")
+        params_frame.pack(fill=tk.X, expand=True, side=tk.TOP)
 
-        self.add_param_entry(params_frame, "Input Directory:", 'input_path', row=0, is_dir=True)
-        self.add_param_entry(params_frame, "File Suffix:", 'file_suffix', row=1)
-        self.add_param_entry(params_frame, "Min Text Length:", 'min_text_length', row=2)
-        self.add_param_entry(params_frame, "Similarity Threshold:", 'similarity_threshold', row=3)
-        self.add_param_entry(params_frame, "N-Gram Size:", 'ngram', row=4)
-        self.add_param_entry(params_frame, "N-Out (from N-Gram):", 'n_out', row=5)
-        self.add_param_entry(params_frame, "Max Files to Process:", 'keep_texts', row=6)
+        # --- File Path Inputs ---
+        self.create_path_entry(params_frame, "input_path", "Primary Corpus Path:", 0)
+        self.create_path_entry(params_frame, "input_path2", "Secondary Corpus Path (Optional):", 1)
 
-        control_frame = ttk.LabelFrame(main_frame, text="2. Execution", padding="10")
-        control_frame.pack(fill=tk.X, expand=False, pady=5)
-        self.run_button = ttk.Button(control_frame, text="Start Analysis", command=self.start_analysis_thread)
-        self.run_button.pack(fill=tk.X)
+        # --- Core Algorithm Parameter Inputs ---
+        self.create_param_entry(params_frame, "ngram", "N-gram size:", 2, 0)
+        self.create_param_entry(params_frame, "n_out", "N-out size:", 2, 2)
+        self.create_param_entry(params_frame, "min_text_length", "Min. Text Length:", 3, 0)
 
-        log_frame = ttk.LabelFrame(main_frame, text="3. Log", padding="10")
-        log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-        self.log_text = tk.Text(log_frame, state='disabled', wrap='word', height=10)
-        log_scroll = ttk.Scrollbar(log_frame, command=self.log_text.yview)
-        self.log_text['yscrollcommand'] = log_scroll.set
-        log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # --- Threshold Input ---
+        ttk.Label(params_frame, text="Similarity Threshold:").grid(row=3, column=2, sticky=tk.W, padx=5, pady=5)
+        threshold_entry = ttk.Entry(params_frame, textvariable=self.params['similarity_threshold'], width=5)
+        threshold_entry.grid(row=3, column=3, sticky=tk.W, padx=5, pady=5)
 
-        self.output_frame = ttk.LabelFrame(main_frame, text="4. Open Reports", padding="10")
-        self.output_frame.pack(fill=tk.X, expand=False, pady=5)
+        # Section 2: The main button to start the analysis.
+        self.run_button = ttk.Button(main_frame, text="Run Analysis", command=self.start_analysis_thread)
+        self.run_button.pack(pady=10)
 
-    def add_param_entry(self, parent, label_text, param_key, row, is_dir=False):
-        ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky='w', padx=5, pady=2)
-        var = tk.StringVar(value=DEFAULT_PARAMS.get(param_key, ''))
-        entry = ttk.Entry(parent, textvariable=var)
-        entry.grid(row=row, column=1, sticky='ew')
-        self.params[param_key] = var
-        if is_dir:
-            browse_btn = ttk.Button(parent, text="Browse...", command=lambda: self.browse_directory(var))
-            browse_btn.grid(row=row, column=2, padx=5)
+        # Section 3: A text area for logging output.
+        log_frame = ttk.LabelFrame(main_frame, text="Log Output", padding="10")
+        log_frame.pack(fill=tk.BOTH, expand=True, side=tk.BOTTOM)
 
-    def browse_directory(self, var):
-        dir_name = filedialog.askdirectory()
-        if dir_name:
-            var.set(dir_name)
-
-    def log(self, message):
-        self.log_text.configure(state='normal')
-        self.log_text.insert(tk.END, message + '\n')
+        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=15)
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+        # The log should be read-only for the user.
         self.log_text.configure(state='disabled')
-        self.log_text.see(tk.END)
 
-    def process_log_queue(self):
-        try:
-            while True:
-                message = self.log_queue.get_nowait()
-                if isinstance(message, dict) and message.get("type") == "analysis_complete":
-                    self.analysis_finished(message.get("files", {}))
-                else:
-                    self.log(str(message))
-        except queue.Empty:
-            pass
-        self.master.after(100, self.process_log_queue)
+    def create_path_entry(self, parent, param_name, label_text, row):
+        """Helper function to create a labeled entry field for a directory path with a 'Browse' button."""
+        ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky=tk.W, padx=5, pady=5)
+        entry = ttk.Entry(parent, textvariable=self.params[param_name], width=60)
+        entry.grid(row=row, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=5)
+        browse_button = ttk.Button(parent, text="Browse...", command=lambda: self.browse_directory(param_name))
+        browse_button.grid(row=row, column=3, sticky=tk.W, padx=5, pady=5)
+
+    def create_param_entry(self, parent, param_name, label_text, row, col):
+        """Helper function to create a standard labeled entry field for a parameter."""
+        ttk.Label(parent, text=label_text).grid(row=row, column=col, sticky=tk.W, padx=5, pady=5)
+        entry = ttk.Entry(parent, textvariable=self.params[param_name], width=5)
+        entry.grid(row=row, column=col+1, sticky=tk.W, padx=5, pady=5)
+
+    def browse_directory(self, param_name):
+        """Opens a system dialog to select a directory and updates the corresponding entry field."""
+        directory = filedialog.askdirectory(title="Select a Folder")
+        if directory:
+            self.params[param_name].set(directory)
 
     def start_analysis_thread(self):
+        """
+        Starts the main analysis process in a separate thread to prevent the GUI from freezing.
+        """
+        # Disable the run button to prevent multiple simultaneous runs.
+        self.run_button.config(state="disabled", text="Analysis in Progress...")
+        # Clear the log window for the new run.
+        self.log_text.configure(state='normal')
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.configure(state='disabled')
+
+        # Create and start a new thread that will execute the `run_analysis` method.
+        # `daemon=True` ensures the thread will close when the main window is closed.
+        analysis_thread = threading.Thread(target=self.run_analysis, daemon=True)
+        analysis_thread.start()
+
+    def run_analysis(self):
+        """
+        This is the main worker function. It collects parameters from the GUI,
+        runs the entire FLAME analysis pipeline, and redirects print statements
+        to the GUI log window.
+        """
         try:
-            current_params = {key: var.get() for key, var in self.params.items()}
-            for key in ['keep_texts', 'ngram', 'n_out', 'min_text_length']:
-                current_params[key] = int(current_params[key])
-            current_params['similarity_threshold'] = float(current_params['similarity_threshold'])
-        except ValueError as e:
-            messagebox.showerror("Invalid Parameter", f"Please check your input values. Error: {e}")
-            return
+            # Convert GUI string parameters to their correct types (int, float, etc.).
+            args_for_flame = {}
+            for key, var in self.params.items():
+                val = var.get()
+                if key in ['keep_texts', 'ngram', 'n_out', 'min_text_length', 'char_norm_min_freq']:
+                    args_for_flame[key] = int(val)
+                elif key == 'similarity_threshold' and val.lower() != 'auto':
+                    args_for_flame[key] = float(val)
+                else:
+                    args_for_flame[key] = val
 
-        self.run_button.config(state='disabled', text="Analysis in Progress...")
-        self.log_text.config(state='normal'); self.log_text.delete(1.0, tk.END); self.log_text.config(state='disabled')
-        for widget in self.output_frame.winfo_children():
-            widget.destroy()
+            # Initialize the main analysis class with the parameters from the GUI.
+            analyzer = Flame(params=args_for_flame)
 
-        thread = threading.Thread(target=self.run_analysis_worker, args=(current_params, self.log_queue))
-        thread.daemon = True
-        thread.start()
+            # --- Redirect stdout/stderr to the GUI log window ---
+            # This is a trick to capture all `print()` statements from the engine
+            # and display them in the GUI instead of the console.
+            sys.stdout = self
+            sys.stderr = self
 
-    def analysis_finished(self, output_files):
-        self.run_button.config(state='normal', text="Start Analysis")
-        self.log("ANALYSIS COMPLETE")
-        self.output_files = output_files
-
-        btn_info = {"heatmap": "Open Heatmap", "comparison": "Open Comparison Report", "summary": "Open TSV Summary"}
-        for key, text in btn_info.items():
-            if key in self.output_files:
-                path = self.output_files[key]
-                btn = ttk.Button(self.output_frame, text=text, command=lambda p=path: self.open_file_in_browser(p))
-                btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-
-    def open_file_in_browser(self, file_path):
-        try:
-            abs_path = os.path.realpath(file_path)
-            webbrowser.open('file://' + abs_path)
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not open file: {file_path}\n{e}")
-
-    def run_analysis_worker(self, params, log_queue):
-        try:
-            def logger(msg): log_queue.put(msg)
-
-            logger("Starting analysis with the following parameters:")
-            for key, val in params.items(): logger(f"  - {key}: {val}")
-            logger("-" * 20)
-
-            analyzer = Flame(params=params, log_callback=logger)
-
-            elements_to_keep = analyzer.args.ngram - analyzer.args.n_out
-            if elements_to_keep < 1: raise ValueError("ngram - n_out must be >= 1")
-            if analyzer.args.n_out < 0: raise ValueError("n_out cannot be negative")
-            if analyzer.args.ngram < 1: raise ValueError("ngram must be at least 1")
+            # --- Execute the full analysis pipeline ---
+            # This logic is identical to the original `main()` function.
+            if (analyzer.args.ngram - analyzer.args.n_out) < 1:
+                raise ValueError(f"N-gram size ({analyzer.args.ngram}) minus n-out ({analyzer.args.n_out}) must be at least 1.")
 
             analyzer.load_corpus()
             if not analyzer.corpus:
-                logger("Exiting: No texts were loaded into the corpus.")
-                log_queue.put({"type": "analysis_complete"})
-                return
+                raise RuntimeError("Execution halted because no documents were loaded.")
 
             analyzer.compute_similarity_matrix()
+            if analyzer.dist_mat is None:
+                raise RuntimeError("Execution halted because the similarity matrix could not be computed.")
 
-            output_files = {}
-            if analyzer.dist_mat is not None and analyzer.dist_mat.size > 0:
-                visualizer = SimilarityVisualizer()
-
-                visualizer.plot_similarity_heatmap(analyzer, log_callback=logger)
-                output_files["heatmap"] = "similarity_heatmap.html"
-
-                visualizer.generate_comparison_html(analyzer, log_callback=logger)
-                output_files["comparison"] = "text_comparisons_01.html"
-
-                visualizer.generate_similarity_summary_tsv(analyzer, log_callback=logger)
-                output_files["summary"] = "similarity_summary.tsv"
+            if str(analyzer.args.similarity_threshold).lower() == 'auto':
+                final_threshold = analyzer._determine_auto_threshold(method=analyzer.args.auto_threshold_method)
             else:
-                logger("No similarity data computed, skipping visualization.")
+                final_threshold = float(analyzer.args.similarity_threshold)
 
-            log_queue.put({"type": "analysis_complete", "files": output_files})
+            visualizer = SimilarityVisualizer()
+
+            if analyzer.dist_mat.shape[0] < 2000 and analyzer.dist_mat.shape[1] < 2000:
+                visualizer.plot_similarity_heatmap(analyzer)
+            else:
+                print(f"Skipping heatmap generation for large matrix ({analyzer.dist_mat.shape[0]}x{analyzer.dist_mat.shape[1]}).")
+
+            visualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
+            visualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
+            visualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
+
+            print("\n--- ANALYSIS COMPLETE ---")
 
         except Exception as e:
-            import traceback
-            log_queue.put(f"FATAL ERROR")
-            log_queue.put(f"An error occurred: {e}")
-            log_queue.put(traceback.format_exc())
-            log_queue.put({"type": "analysis_complete"})
+            # If any error occurs, display it in the log window.
+            self.log(f"\n--- AN ERROR OCCURRED ---\n{e}\n")
+        finally:
+            # This block runs whether the analysis succeeded or failed.
+            # Re-enable the run button.
+            self.run_button.config(state="normal", text="Run Analysis")
+            # Restore the original stdout and stderr.
+            sys.stdout = sys.__stdout__
+            sys.stderr = sys.__stderr__
+
+    def write(self, text):
+        """
+        This method is required for stdout redirection. It receives any text
+        from `print()` calls and puts it into the thread-safe queue.
+        """
+        self.log_queue.put(text)
+
+    def flush(self):
+        """Required for stdout redirection, but doesn't need to do anything here."""
+        pass
+
+    def process_log_queue(self):
+        """
+        Periodically checks the queue for new messages from the analysis thread
+        and, if any are found, calls the `log` method to display them in the GUI.
+        """
+        try:
+            while True:
+                text = self.log_queue.get_nowait()
+                self.log(text)
+        except queue.Empty:
+            # If the queue is empty, schedule this method to run again after 100ms.
+            self.after(100, self.process_log_queue)
+
+    def log(self, text):
+        """Inserts text into the GUI's log widget"""
+        self.log_text.configure(state='normal')
+        self.log_text.insert(tk.END, text)
+        self.log_text.see(tk.END) # Auto-scroll to the bottom
+        self.log_text.configure(state='disabled')
 
 
-if __name__ == '__main__':
-    root = tk.Tk()
-    app = FlameGUI(master=root)
+if __name__ == "__main__":
+    # This is the entry point for the application.
+    app = FlameGUI()
+    # `mainloop()` starts the Tkinter event loop, showing the window and
+    # waiting for user interaction.
     app.mainloop()
