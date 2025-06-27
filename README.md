@@ -1,130 +1,156 @@
-# FLAME - Formulaic Language Analysis in Medieval Expressions
+# FLAME: Fast Linguistic Analysis and Matching Engine
 
-FLAME is a Python-based (CLI and GUI) tool for identifying and analyzing formulaic expressions in medieval texts using a Leave-N-Out (LNO) n-gram approach. This method is particularly effective for detecting variant forms of formulaic expressions that differ due to scribal variations, regional differences, or dialectal changes. You find a downloadable demo in the repository (text_comparisons.html)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+**FLAME** is a Python-based tool with both **Command-Line (CLI)** and **Graphical (GUI)** interfaces, designed for identifying and analyzing formulaic language and text reuse, particularly in historical corpora like medieval charters (20k charters comparsion is 40s with a Dell Precision 3660 workstation). It uses a **Leave-N-Out (LNO) n-gram** approach, which is highly effective for detecting variant forms of expressions that differ due to scribal variations, regional dialects, or other textual modifications.
+
+A downloadable demo of the HTML output can be found in the repository (`text_comparisons_demo.html`).
 
 <p align="center">
-  <img src="flame-little-flame.gif" width="200" />
+  <img src="flame-little-flame.gif" width="200" alt="FLAME animation" />
 </p>
 
-The LNO-ngram approach works as follows:
+## How It Works
 
-1. Generate n-grams of specified length (k) from input texts
-2. For each n-gram, create variants by removing n tokens (where 1 ≤ r < n)
-Consider the medieval charter opening: "In nomine sancte et individue trinitatis amen"
-4. Convert tokens to integers for efficient comparison
-5. Calculate Intersection over Union (IoU) similarity between texts
-6. Identify and visualize matching patterns
+The LNO-gram approach systematically creates robust features from text. For a given sequence of words (an n-gram), it generates multiple variants by omitting a specified number of tokens. This allows the system to identify underlying similarities even if the surface forms are not identical.
 
-## Method comparsion
+Consider the medieval charter opening: *"In nomine sancte et individue trinitatis amen"*
 
-| Method | Input Text | Generated Patterns | Match Score | Notes |
+1.  **Generate n-grams**: The tool slides a window of a specified length (e.g., 5 words) across the text.
+2.  **Create LNO variants**: For each 5-gram, it creates subsequences by removing a specified number of tokens (e.g., 1). For the 5-gram `[In, nomine, sancte, et, individue]`, it would generate features like `[_, nomine, sancte, et, individue]`, `[In, _, sancte, et, individue]`, etc.
+3.  **Hashing**: Each variant is converted into a unique, memory-efficient integer hash.
+4.  **Similarity Calculation**: The tool calculates the cosine similarity between documents based on the frequency of these shared feature hashes.
+5.  **Visualization**: Results are presented in interactive reports that highlight matching patterns in their original context.
+
+### Method Comparison
+
+The LNO-gram method offers a balance of context-preservation and flexibility that is often superior to traditional n-grams or skip-grams for historical text analysis.
+
+| Method | Input Text | Generated Patterns (Examples) | Match Score | Notes |
 |--------|------------|-------------------|-------------|--------|
-| N-gram (n=5) | In nomine sancte et individue | [In nomine sancte et individue] | 1.0 | Perfect match |
-| | In dei nomine sancte et | [In dei nomine sancte et] | 0.0 | No match |
-| | In nomine sancte trinitatis amen | [In nomine sancte trinitatis amen] | 0.0 | No match |
-| Skip-gram (n=2, k=1) | In nomine sancte et individue | [In sancte], [nomine et], [sancte individue] | 0.4 | Partial matches |
-| | In dei nomine sancte et | [In nomine], [dei sancte], [nomine et] | 0.3 | Partial matches |
-| | In nomine sancte trinitatis amen | [In sancte], [nomine trinitatis], [sancte amen] | 0.3 | Partial matches |
-| LNO-gram (n=5, r=1) | In nomine sancte et individue | [_ nomine sancte et individue] ... [In nomine sancte et _] | 0.92 | High flexibility |
-| | In dei nomine sancte et | [_ dei nomine sancte et] ... [In dei nomine sancte _] | 0.85 | Captures variants |
-| | In nomine sancte trinitatis amen | [_ nomine sancte trinitatis amen] ... [In nomine sancte trinitatis _] | 0.88 | Preserves context |
+| **N-gram** | `In nomine sancte et individue` | `[In nomine sancte et individue]` | 1.0 | Rigid, requires perfect match. |
+| (n=5) | `In dei nomine sancte et` | `[In dei nomine sancte et]` | 0.0 | Fails with minor variation. |
+| **Skip-gram**| `In nomine sancte et individue` | `[In sancte]`, `[nomine et]` | ~0.4 | Loses word order and context. |
+| (n=2, k=1) | `In dei nomine sancte et` | `[In nomine]`, `[dei sancte]` | ~0.3 | Creates many noisy pairs. |
+| **LNO-gram**| `In nomine sancte et individue` | `[_ nomine sancte et individue]`, ... | ~0.92 | High flexibility, preserves context. |
+| (n=5, r=1) | `In dei nomine sancte et` | `[dei nomine sancte et _]`, ... | ~0.85 | Effectively captures variants. |
 
-Where:
-- n: number of tokens in the sequence
-- k: number of tokens to skip (for skip-grams)
-- r: number of tokens to remove (for LNO-grams)
+*Where `n` is the window size, `k` is the number of skips, and `r` is the number of removed tokens. Match scores are illustrative.*
 
-Note: For Leave-n-out patterns, '...' indicates additional patterns with underscore (_) in different positions. Match scores indicate similarity to the original formula structure.
+---
 
+## Key Features
 
-## Features
+-   **Advanced LNO-gram Analysis**: Systematically generates partial matches by removing combinations of tokens from traditional n-grams.
+-   **Adaptive Character Normalization**: Autonomously learns and applies normalization rules (e.g., `é` -> `e`) to reduce noise from character variations.
+-   **Automatic Threshold Detection**: Intelligently determines the optimal similarity threshold using Otsu's method, removing the need for manual guesswork.
+-   **Dual Interface**: Can be run as a powerful command-line tool or through a user-friendly Graphical User Interface (GUI).
+-   **Comprehensive Reporting**: Generates multiple outputs for in-depth analysis, including interactive HTML reports and detailed TSV files.
+-   **High Performance & Scalability**: Handles large corpora by using sparse matrices, iterative vocabulary building, and efficient hashing.
 
-- **LNO-ngram Analysis**: Systematically generates partial matches by removing combinations of tokens from traditional n-grams
-- **Interactive Visualization**: Provides both heatmap and detailed HTML-based visualizations of text similarities
-- **Flexible Pattern Matching**: Identifies variant forms of formulaic expressions across different manuscript traditions
-- **Configurable Parameters**: Easily adjust analysis settings through command-line arguments
-- **Recursive File Processing**: Automatically processes all text files in a directory and its subdirectories
-- **TSV output**:  That shows the frequency of found similarities per document and lists the related documents.
-- **GUI version**
+---
+
+## Installation
+
+It is highly recommended to use a Python virtual environment.
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://your-repo-url/FLAME.git
+    cd FLAME
+    ```
+
+2.  **Create and activate a virtual environment:**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+    ```
+
+3.  **Install dependencies from `requirements.txt`:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **Download NLTK data:** Run the following command in a Python interpreter to download the necessary 'punkt' tokenizer models.
+    ```python
+    import nltk
+    nltk.download('punkt')
+    ```
+---
+
+## Usage
+
+You can run the analysis using either the GUI or the CLI.
+
+### Graphical User Interface (GUI)
+
+The GUI provides an intuitive way to set all parameters and monitor the analysis progress.
 
 <p align="center">
   <img src="flame_gui.png" width="400" />
 </p>
 
-## Installation
-
+To launch the graphical interface, run:
 ```bash
-pip install -r requirements.txt
+python flame_gui.py
 ```
 
-Required dependencies:
-- numpy
-- tqdm
-- plotly
-- fargv
-- IPython
+### Command-Line Interface (CLI)
 
-## Usage
-
-### Basic Usage
-
+To see all available options and their defaults, run:
 ```bash
-python flame.py --input_path /path/to/texts --file_suffix .txt
+python flame.py --help
 ```
 
-### Configuration Parameters
+**Example:**
+```bash
+python flame.py --input_path ./medieval_texts --ngram 10 --n_out 2 --similarity_threshold auto
+```
+
+### All CLI Arguments
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| input_path | ./testdir | Directory containing text files |
-| file_suffix | .txt | File suffix to process |
-| keep_texts | 200 | Maximum number of texts to analyze |
-| ngram | 4 | Size of n-grams |
-| n_out | 1 | Number of tokens to remove |
-| min_text_length | 100 | Minimum text length to consider |
-| similarity_threshold | 0.1 | Minimum similarity threshold |
+| `input_path` | `./corpus1` | **Required.** Path to the primary corpus directory. |
+| `input_path2`| `''` | Optional path to a second corpus for inter-corpus comparison. |
+| `file_suffix`| `.txt` | File extension of texts to process. |
+| `keep_texts` | `20000` | Maximum number of texts to load from each directory. |
+| `ngram` | `10` | The size of the n-gram window for feature generation. |
+| `n_out` | `2` | Number of tokens to "leave out" from each n-gram. |
+| `min_text_length` | `50` | Minimum character length for a file to be included. |
+| `similarity_threshold` | `'auto'` | Similarity cutoff. Can be a float (e.g., `0.5`) or `'auto'`. |
+| `auto_threshold_method` | `'otsu'` | Method for auto-thresholding: `'otsu'` or `'percentile'`. |
+| `char_norm_alphabet` | (see code) | String of allowed characters for normalization. |
+| `char_norm_strategy` | `'normalize'` | Strategy for unknown characters (e.g., Unicode decomposition). |
+| `char_norm_min_freq` | `2` | Min. frequency for the adaptive normalizer to learn a rule. |
 
-### Example
+---
 
-```bash
-python flame.py --input_path ./medieval_texts --ngram 5 --n_out 2 --similarity_threshold 0.15
-```
+## Outputs
 
-## Output
+FLAME generates up to four types of output files in the directory where it is run:
 
-FLAME generates three types of output:
+1.  **`dist_mat.npz`**: A SciPy sparse matrix file containing all pairwise similarity scores. Essential for re-analysis without re-computing.
+2.  **`text_comparisons_XX.html`**: Interactive HTML files for visually comparing similar document pairs. This is the primary output for analysis. Features include:
+    -   Side-by-side text comparison with synchronized highlighting.
+    -   Static highlighting of "almost-matching" words on the left.
+    -   Dynamic, on-click highlighting of corresponding words on the right.
+    -   Controls to show/hide all similarities at once.
+3.  **`similarity_summary.tsv`**: A high-level summary listing each document, how many other documents it is similar to, the names of those documents, and any long matching phrases (>4 words).
+4.  **`linguistic_variations.tsv`**: A detailed TSV file for linguistic analysis, logging every "similar" and "different" word pair found in the short gaps (1-3 words) between main text matches. This is invaluable for studying micro-variations.
 
-1. **Similarity Matrix** (dist_mat.npy): NumPy array containing pairwise similarity scores
-2. **Interactive Heatmap** (similarity_heatmap.html): Visual representation of text similarities
-3. **Detailed Comparison** (text_comparisons.html): Interactive visualization showing:
-   - Matched text segments with highlighting
-   - Bridge words between similar sections
-   - Similarity scores for each text pair
-   - File source information
-4. **TSV output** (similarity_summary.tsv): Tabular representation of text similarities
+<p align="center">
+    <img src="html_comparsion.png" width="1200" alt="HTML Comparison Screenshot" />
+</p>
 
-| DocumentFilename          | SimilarityFrequency | RelatedDocuments     | LongSimilarities(&gt;4words)                                                                                                |
-|---------------------------|---------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `docA.txt`                | 2                   | `docB.txt`, `docC.txt` | `"this is a very long common phrase"` \| `"another shared piece of text"` \| `"a slightly different common part"`            |
-| `docB.txt`                | 1                   | `docA.txt`           | `"this is a very long common phrase"` \| `"another shared piece of text"`                                                     |
-| `docC.txt`                | 1                   | `docA.txt`           | `"this is a very long common phrase"` \| `"a slightly different common part"`                                                 |
-| `docD.txt`                | 0                   | `None`               | `None`                                                                                                                      |
+---
 
-## Visualization Features
+## Acknowledgements
 
-### Heatmap View
-- Color-coded representation of similarity scores
-- Interactive tooltips showing exact similarity values
-- Adjustable threshold for focusing on high-similarity pairs
+The character normalization components (`AdaptiveAlphabet`, `CharacterMapper`) are inspired by and build upon the principles found in **Anguelos Nikolau's** `pylelemmatize` library. His work on efficient character mapping was a valuable reference for this project.
 
-### Text Comparison View, see text_comparisons.html
-- Side-by-side text comparison
-- Click-to-highlight matching sections
-- Automatic scrolling alignment
-- Bridge word highlighting for connecting similar sections
-- Toggle controls for visualization features
-
-<img src="html_comparsion.png" width="1200" />
+---
 
 ## License
-Apache 2.0
+
+This project is licensed under the **Apache 2.0 License**.
