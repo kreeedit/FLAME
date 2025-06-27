@@ -147,7 +147,8 @@ FLAME generates up to four types of output files in the directory where it is ru
 
 ## Acknowledgements
 
-The character normalization components (`AdaptiveAlphabet`, `CharacterMapper`) are inspired by and build upon the principles found in **Anguelos Nikolau's** `pylelemmatize` library. His work on efficient character mapping was a valuable reference for this project.
+The character normalization components are inspired by and build upon the principles found in **Anguelos Nicolaou's** 
+![pylelemmatize](https://github.com/anguelos/pylelemmatize) library. Anguelos's efficient character mapping was a valuable reference for this project.
 
 ---
 
