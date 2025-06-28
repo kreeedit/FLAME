@@ -16,7 +16,10 @@ import plotly.graph_objects as go
 from scipy.sparse import coo_matrix, save_npz
 from sklearn.metrics.pairwise import cosine_similarity
 from skimage.filters import threshold_otsu
+
 import nltk
+# Download the 'punkt_tab' resource
+nltk.download('punkt_tab')
 from nltk.tokenize import RegexpTokenizer, word_tokenize
 from nltk.tokenize.treebank import TreebankWordDetokenizer
 
