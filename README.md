@@ -57,7 +57,7 @@ It is highly recommended to use a Python virtual environment.
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://your-repo-url/FLAME.git
+    git clone https://github.com/kreeedit/FLAME
     cd FLAME
     ```
 
