@@ -8,7 +8,7 @@ from flame import Flame, DEFAULT_PARAMS, SimilarityVisualizer
 
 class FlameGUI(tk.Tk):
     """
-    A Tkinter-based graphical user interface for the FLAME analysis tool.
+    A Tkinter-based graphical user interface for the FLAME.
 
     This class creates a window with input fields for all analysis parameters,
     a button to start the analysis, and a log window to display progress

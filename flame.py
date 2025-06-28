@@ -217,8 +217,8 @@ class AdaptiveAlphabet(CharacterMapper):
 
 
 DEFAULT_PARAMS = {
-    'input_path': '/home/tamask/github/FLAME/mom_latin_public/cleaned',
-    'input_path2': '/media/tamask/DATA1/Variae_teszt/cassiodorus_variae/separated_beta',
+    'input_path': '.',
+    'input_path2': '.',
     'file_suffix': '.txt',
     'keep_texts': 20000,
     'ngram': 6,
