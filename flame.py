@@ -235,9 +235,8 @@ DEFAULT_PARAMS = {
 class Flame:
     """A comprehensive text similarity analysis pipeline.
 
-    This class orchestrates the entire workflow:
     1. Loading and preprocessing text corpora.
-    2. Generating features using a "Leave-N-Out" n-gram method.
+    2. Generating features using a "Leave-N-Out" method.
     3. Calculating a sparse similarity matrix.
     4. Determining an automatic similarity threshold.
     5. Generating multiple reports (interactive HTML, TSV summaries).
