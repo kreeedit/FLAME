@@ -786,32 +786,56 @@ class SimilarityVisualizer:
     def generate_comparison_html(analyzer, similarity_threshold: float, max_file_size=20 * 1024 * 1024, interactive_range_width: float = 0.3):
         """
         Generates self-contained, interactive HTML files for visual comparison.
+
+        Args:
+            analyzer: The TextSimilarityAnalyzer instance containing the similarity data.
+            similarity_threshold (float): The primary similarity score threshold for filtering.
+            max_file_size (int): The maximum size in bytes for a single HTML output file.
+                                 The report will be split into multiple files if this size is exceeded.
+            interactive_range_width (float): The range below the main similarity_threshold
+                                             to include in the report for interactive filtering.
         """
+        # Ensure that the distance matrix and corpus exist before proceeding.
         if analyzer.dist_mat is None or not analyzer.corpus:
+            print("ERROR: Distance matrix or corpus not found. Cannot generate HTML report.")
             return
 
+        # This string contains all the necessary code for the interactive report's structure, styling, and functionality.
         html_template_start = """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Text Similarity Comparison</title><style>
-        /* --- Original styles for the report --- */
+        /* --- General Body and Layout Styles --- */
         body{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;margin:20px;line-height:1.6;background-color:#f8f9fa}
         .comparison-block{margin-bottom:2em;background-color:#fff;padding:1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6}
         .comparison-container{display:flex;gap:20px;flex-wrap:wrap}@media(min-width:768px){.comparison-container{flex-wrap:nowrap}}
         .text-box{flex:1 1 100%;min-width:300px;padding:15px;border:1px solid #ced4da;border-radius:5px;background-color:#fff;height:400px;overflow-y:auto;position:relative}
+
+        /* --- Typography and Info Styles --- */
         h2{color:#212529;border-bottom:2px solid #e9ecef;padding-bottom:.5em; margin-top: 0;}
         h3{color:#343a40;margin-top:0}
         .similarity-score{font-weight:700;color:#0056b3}
         .file-info{font-size:.9em;color:#6c757d;margin-bottom:.5em;font-weight:700}
+
+        /* --- Highlighting Styles for Matches and Words --- */
         .highlight{background-color:#fff3b8;border-radius:3px}
         .highlight.clickable{cursor:pointer;transition:background-color .2s}
         .highlight.clickable:hover{background-color:#ffe066}
         .active-highlight{background-color:#ffd700;box-shadow:0 0 0 2px #ffc107}
         .match-text{border-radius:3px;transition:background-color .3s}
         .match-text.active{background-color:#fff3b8}
+
+        /* --- Styles for Bridge Words (gaps between matches) --- */
+        .bridge-words.highlighted{background-color:#f1c0c5;border-radius:3px}
+        .bridge-word-similar, .bridge-word-similar-static { border-radius: 3px; padding: 0 2px; }
+        .bridge-word-similar-static { background-color: #fff9e0; } /* Static highlight for left pane */
+        .bridge-word-similar { transition: background-color 0.3s ease-in-out; }
+        .bridge-word-similar.revealed { background-color: #fff9e0; } /* Dynamic highlight for right pane */
+
+        /* --- Control Panel and Button Styles --- */
         #controls{margin-bottom:1.5em;background-color:#fff;padding:1em 1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6;}
         .button-container { display: flex; gap: 10px; margin-top: 1em; }
         .control-button { background-color:#28a745;color:#fff;padding:0.4em 0.8em;border:none;border-radius:4px;cursor:pointer;font-weight:700; font-size: 0.9em; }
         .control-button.active { background-color:#dc3545; }
 
-        /* --- NEW: Styles for the range slider --- */
+        /* --- Styles for the Range Slider Filter --- */
         .filter-container { margin-top: 1.5em; padding-top: 1em; border-top: 1px solid #e9ecef; }
         .slider-wrapper { position: relative; height: 30px; }
         .slider-label { font-weight: 600; color: #495057; margin-bottom: 0.5em; }
@@ -845,6 +869,7 @@ class SimilarityVisualizer:
         html_template_end = """
 <script>
 document.addEventListener("DOMContentLoaded", function() {
+    // --- Element Selectors ---
     const toggleBridgeBtn = document.getElementById("toggle-all-bridge-words");
     const toggleSimilaritiesBtn = document.getElementById("toggle-all-similarities");
     const minSlider = document.getElementById("min-similarity");
@@ -853,7 +878,8 @@ document.addEventListener("DOMContentLoaded", function() {
     const maxValSpan = document.getElementById("max-similarity-val");
     const comparisonBlocks = document.querySelectorAll(".comparison-block");
 
-    // Event handlers for the original buttons
+    // --- Global Toggle Button Logic ---
+    // Toggles the visibility of "bridge words" (text between matching blocks).
     if (toggleBridgeBtn) {
         toggleBridgeBtn.addEventListener("click", function() {
             const isActive = this.classList.toggle("active");
@@ -861,6 +887,7 @@ document.addEventListener("DOMContentLoaded", function() {
             this.textContent = isActive ? "Hide All Bridge Words" : "Show All Bridge Words";
         });
     }
+    // Toggles the visibility of all similar word highlights across all pairs.
     if (toggleSimilaritiesBtn) {
         toggleSimilaritiesBtn.addEventListener("click", function() {
             const isActive = this.classList.toggle("active");
@@ -870,15 +897,18 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // Logic for clickable highlights
+    // --- Interactive Highlighting Logic ---
+    // Main event listener for clicking on highlighted text.
     document.body.addEventListener("click", function(event) {
         if (event.target.classList.contains("highlight") && event.target.classList.contains("clickable")) {
             const matchId = event.target.dataset.matchId;
             const pairId = event.target.dataset.pairId;
             const comparisonBlock = document.querySelector(`.comparison-block[data-pair-id='${pairId}']`);
             if (!comparisonBlock) return;
+
             const wasActive = event.target.classList.contains("active-highlight");
-            clearAllHighlights(comparisonBlock);
+            clearAllHighlights(comparisonBlock); // Clear previous highlights within the same block.
+
             if (!wasActive) {
                 highlightPair(comparisonBlock, pairId, matchId);
                 scrollToPartner(comparisonBlock, pairId, matchId);
@@ -886,29 +916,34 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 
+    // Clears all active highlights within a specific comparison block.
     function clearAllHighlights(block) {
         block.querySelectorAll(".active-highlight").forEach(el => el.classList.remove("active-highlight"));
         block.querySelectorAll(".match-text.active").forEach(el => el.classList.remove("active"));
         block.querySelectorAll(".bridge-word-similar.revealed").forEach(el => el.classList.remove("revealed"));
     }
 
+    // Activates the highlight for a clicked match and its partner.
     function highlightPair(block, pairId, matchId) {
         block.querySelector(`.highlight.clickable[data-match-id="${matchId}"]`)?.classList.add("active-highlight");
         block.querySelector(`.match-text[data-match-id="${matchId}"]`)?.classList.add("active");
     }
 
+    // Scrolls the partner text box to bring the corresponding match into view.
     function scrollToPartner(block, pairId, matchId) {
         const partnerEl = block.querySelector(`.match-text.active[data-match-id="${matchId}"]`);
         const textBox = partnerEl?.closest(".text-box");
         if (textBox && partnerEl) {
             const boxRect = textBox.getBoundingClientRect();
             const partnerRect = partnerEl.getBoundingClientRect();
+            // Calculate the scroll position to center the element vertically.
             const scrollOffset = (partnerRect.top - boxRect.top) - (textBox.clientHeight / 2) + (partnerRect.height / 2);
             textBox.scrollTop += scrollOffset;
         }
     }
 
-    // Logic for the range slider
+    // --- Range Slider Filtering Logic ---
+    // Hides or shows comparison blocks based on the slider's value range.
     function filterDocuments() {
         const minVal = parseFloat(minSlider.value);
         const maxVal = parseFloat(maxSlider.value);
@@ -922,7 +957,9 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
+    // Initializes the sliders with values passed from the Python script.
     function setupSliders() {
+        // Retrieve thresholds from data attributes on the body tag.
         const minDisplayThreshold = document.body.dataset.minDisplayThreshold || "0.0";
         const initialThreshold = document.body.dataset.initialThreshold || "0.75";
 
@@ -930,15 +967,16 @@ document.addEventListener("DOMContentLoaded", function() {
         maxSlider.min = minDisplayThreshold;
         minSlider.max = "1.0";
         maxSlider.max = "1.0";
-        minSlider.value = initialThreshold;
-        maxSlider.value = "1.0";
+        minSlider.value = initialThreshold; // Set the default lower bound.
+        maxSlider.value = "1.0"; // Set the default upper bound.
+
         minValSpan.textContent = parseFloat(minSlider.value).toFixed(3);
         maxValSpan.textContent = parseFloat(maxSlider.value).toFixed(3);
 
         minSlider.addEventListener("input", () => {
             let minVal = parseFloat(minSlider.value);
             let maxVal = parseFloat(maxSlider.value);
-            if (minVal >= maxVal) {
+            if (minVal >= maxVal) { // Prevent the min slider from crossing the max slider.
                 minSlider.value = maxVal - 0.001;
                 minVal = parseFloat(minSlider.value);
             }
@@ -948,14 +986,14 @@ document.addEventListener("DOMContentLoaded", function() {
         maxSlider.addEventListener("input", () => {
             let minVal = parseFloat(minSlider.value);
             let maxVal = parseFloat(maxSlider.value);
-            if (maxVal <= minVal) {
+            if (maxVal <= minVal) { // Prevent the max slider from crossing the min slider.
                 maxSlider.value = minVal + 0.001;
                 maxVal = parseFloat(maxSlider.value);
             }
             maxValSpan.textContent = maxVal.toFixed(3);
             filterDocuments();
         });
-        filterDocuments(); // Initial filter on page load
+        filterDocuments(); // Apply the initial filter when the page loads.
     }
     setupSliders();
 });
@@ -963,49 +1001,57 @@ document.addEventListener("DOMContentLoaded", function() {
 </body>
 </html>"""
 
-        # Calculate the absolute lower bound for pairs to be included in the report.
+        # Determine the absolute lower bound for pairs to include in the HTML file.
+        # This improves performance by not processing very dissimilar pairs.
         min_display_threshold = max(0.0, similarity_threshold - interactive_range_width)
         print(f"INFO: HTML report will include pairs with similarity >= {min_display_threshold:.4f}")
         print(f"INFO: The default view will be filtered to >= {similarity_threshold:.4f}")
 
-        # Pass the thresholds to the JavaScript via data attributes on the body tag.
-        html_with_threshold = html_template_start.replace(
+        # Pass the calculated thresholds to the JavaScript via data attributes on the body tag.
+        html_with_thresholds = html_template_start.replace(
             '<body>',
             f'<body data-initial-threshold="{similarity_threshold}" data-min-display-threshold="{min_display_threshold}">'
         )
 
-        file_counter, current_html, pair_count = 1, html_with_threshold, 0
-        print("Generating HTML comparison files from sparse matrix...")
+        file_counter = 1  # For naming report files (e.g., text_comparisons_01.html)
+        current_html = html_with_thresholds
+        pair_count = 0
 
+        print("Generating HTML comparison files from sparse matrix...")
         dist_mat_coo = analyzer.dist_mat.tocoo()
         similar_pairs = []
 
-        # Filter pairs using the new, dynamically calculated lower bound for performance.
+        # Filter pairs using the dynamically calculated lower bound for better performance.
         for i, j, score in zip(dist_mat_coo.row, dist_mat_coo.col, dist_mat_coo.data):
             if score >= min_display_threshold:
+                # For self-comparison, ignore upper triangle and diagonal to avoid duplicates (i,j) vs (j,i).
                 if not analyzer.is_inter_comparison and i >= j:
                     continue
                 similar_pairs.append((i, j, score))
 
-        # For better clarity, sort the pairs by similarity in descending order.
+        # Sort pairs by similarity score in descending order for a more organized report.
         similar_pairs.sort(key=lambda x: x[2], reverse=True)
 
-        # Tokenize the corpora once outside the loop for efficiency.
+        # Tokenize all texts once outside the loop for efficiency.
         display_token_corpus1 = [word_tokenize(text) for text in analyzer.corpus]
         display_token_corpus2 = [word_tokenize(text) for text in (analyzer.corpus2 or analyzer.corpus)]
 
         for pair in tqdm.tqdm(similar_pairs, desc="Generating HTML pairs"):
             i, j, score = pair
 
-            # The pair_id is now generated from document indices to be unique and stable
-            # for the click-to-highlight feature, even after filtering.
+            # Create a unique and stable ID for the pair based on document indices.
+            # This is crucial for the click-to-highlight JavaScript functionality.
             unique_pair_id = f"{i}-{j}"
 
+            # Generate the highlighted HTML for the two texts.
             h1, h2 = SimilarityVisualizer.highlight_similarities(display_token_corpus1[i], display_token_corpus2[j], unique_pair_id)
+
+            # Get filenames for the report header.
             f1 = analyzer.file_paths[i].name
             f2 = analyzer.file_paths2[j].name if analyzer.is_inter_comparison else analyzer.file_paths[j].name
 
-            # Add the data-score and data-pair-id attributes to the segment for the JS filter and highlighter.
+            # Assemble the HTML block for this specific pair.
+            # It includes data-score and data-pair-id for the JS filter and highlighter.
             segment = f'<div class="comparison-block" data-score="{score:.4f}" data-pair-id="{unique_pair_id}">' \
                       f'<h3>Comparison: {f1} &harr; {f2}</h3>' \
                       f'<div class="similarity-score">Cosine Similarity: {score:.4f}</div>' \
@@ -1014,20 +1060,24 @@ document.addEventListener("DOMContentLoaded", function() {
                       f'<div class="text-box"><p class="file-info">File 2: {f2}</p>{h2}</div>' \
                       f'</div></div>'
 
+            # To prevent creating excessively large HTML files, split the report if it exceeds max_file_size.
             current_html_len = len(current_html.encode('utf-8'))
             segment_len = len(segment.encode('utf-8'))
 
-            # Check if adding the new segment exceeds the max file size.
             if pair_count > 0 and current_html_len + segment_len > max_file_size:
+                # Write the current HTML content to a file.
                 with open(f"text_comparisons_{file_counter:02d}.html", "w", encoding='utf-8') as f:
                     f.write(current_html + html_template_end)
+
+                # Reset for the next file.
                 file_counter += 1
-                current_html = html_with_threshold
+                current_html = html_with_thresholds
                 pair_count = 0
 
             current_html += segment
             pair_count += 1
 
+        # After the loop, write any remaining content to the last file.
         if pair_count > 0:
             with open(f"text_comparisons_{file_counter:02d}.html", "w", encoding='utf-8') as f:
                 f.write(current_html + html_template_end)
