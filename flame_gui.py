@@ -108,7 +108,7 @@ class FlameGUI(tk.Tk):
     def open_result_file(self, filename):
         """Opens a given file with the system's default application."""
         if os.path.exists(filename):
-            webbrowser.open(f'file://{os.path.realpath(filename)}')
+            webbrowser.open(os.path.realpath(filename))
         else:
             self.log(f"\nFile not found: {filename}\n")
 
