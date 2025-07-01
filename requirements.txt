@@ -1,10 +1,10 @@
-fargv>=0.7.0
-ipython>=8.0.0
+fargv
+numpy
 nltk
-numpy>=1.21.0
-plotly>=5.13.0
+plotly
 python-Levenshtein
 scikit-image
 scikit-learn
 scipy
-tqdm>=4.65.0
+sentencepiece
+tqdm

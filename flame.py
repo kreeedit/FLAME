@@ -317,8 +317,8 @@ class AdaptiveAlphabet(CharacterMapper):
         print("--- Character Normalization Complete ---\n")
 
 DEFAULT_PARAMS = {
-    'input_path': '/media/tamask/DATA1/Variae_teszt/HU-PBFL',
-    'input_path2': '/media/tamask/DATA1/Variae_teszt/cassiodorus_variae/separated_beta',
+    'input_path': '',
+    'input_path2': '',
     'file_suffix': '.txt',
     'keep_texts': 100000,
     'ngram': 8,
@@ -790,7 +790,6 @@ class SimilarityVisualizer:
         if analyzer.dist_mat is None or not analyzer.corpus:
             return
 
-        # --- HTML, CSS, and JavaScript Templates (all in English) ---
         html_template_start = """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Text Similarity Comparison</title><style>
         /* --- Original styles for the report --- */
         body{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;margin:20px;line-height:1.6;background-color:#f8f9fa}
