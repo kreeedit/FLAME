@@ -132,7 +132,7 @@ def suggest_vocab_size_optimized(
     print(f"Found {len(affix_counts)} potential affixes (morpheme candidates).")
 
     if affix_counts:
-        num_examples = 15
+        num_examples = 100
         top_affixes = [f"'{affix}' ({count})" for affix, count in affix_counts.most_common(num_examples)]
         # Ensure we don't print more examples than we have
         actual_examples_count = min(num_examples, len(top_affixes))
@@ -1093,7 +1093,11 @@ document.addEventListener("DOMContentLoaded", function() {
             else:
                 related_doc_names = sorted([analyzer.file_paths[j].name for j in related_docs_indices])
 
-            rows.append(f"{analyzer.file_paths[i].name}\t{len(related_doc_names)}\t{', '.join(related_doc_names) or 'None'}\t{' | '.join(f'\"{s}\"' for s in sorted(long_segments, key=len, reverse=True)) or 'None'}\n")
+            long_segments_str = ' | '.join(f'"{s}"' for s in sorted(long_segments, key=len, reverse=True)) or 'None'
+            related_docs_str = ', '.join(related_doc_names) or 'None'
+            rows.append(f"{analyzer.file_paths[i].name}\t{len(related_doc_names)}\t{related_docs_str}\t{long_segments_str}\n")
+
+
 
         with open("similarity_summary.tsv", "w", encoding='utf-8') as f: f.writelines(rows)
         print("Generated similarity_summary.tsv")
