@@ -331,7 +331,7 @@ DEFAULT_PARAMS = {
     'char_norm_min_freq': 2,
     'vocab_size': 'auto',
     'vocab_min_word_freq': 3,
-    'vocab_coverage': 0.8,
+    'vocab_coverage': 0.85,
 }
 
 class Flame:
