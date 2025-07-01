@@ -8,7 +8,7 @@ import tqdm
 import Levenshtein
 from itertools import combinations
 from difflib import SequenceMatcher
-from collections import defaultdict
+from collections import defaultdict, Counter
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Union
 
@@ -19,7 +19,7 @@ from skimage.filters import threshold_otsu
 import nltk
 from nltk.tokenize import RegexpTokenizer, word_tokenize
 from nltk.tokenize.treebank import TreebankWordDetokenizer
-
+import sentencepiece as spm
 
 def fast_str_to_numpy(s: str, dtype=np.uint16) -> np.ndarray:
     """Efficiently converts a string to a NumPy array via byte encoding
@@ -66,6 +66,102 @@ def fast_numpy_to_str(np_arr: np.ndarray) -> str:
     else:
         raise ValueError(f"Unsupported dtype for fast NumPy conversion: {np_arr.dtype}")
 
+def suggest_vocab_size_optimized(
+    corpus: list[str],
+    min_word_freq: int = 3,
+    max_affix_len: int = 6,
+    coverage_percentile: float = 0.85
+) -> int:
+    """
+    Based on the statistical analysis of the corpus, it proposes the vocabulary size (vocab_size) of SentencePiece.
+
+    Args:
+        corpus (list[str]): A list of documents as raw text.
+        min_word_freq (int): Minimum word frequency to reduce noise.
+        max_affix_len (int): The maximum length of affixes to consider.
+        coverage_percentile (float): The target coverage percentile.
+
+    Returns:
+        int: The proposed integer is 'vocab_size'.
+    """
+    print("\n--- Starting Automatic Vocab Size Suggestion (Optimized) ---")
+
+    print(f"Counting word frequencies...")
+    word_counts = Counter()
+    tokenizer = re.compile(r'\b\w+\b')
+    for doc in tqdm.tqdm(corpus, desc="Tokenizing corpus"):
+        word_counts.update(token.lower() for token in tokenizer.findall(doc))
+
+    frequent_word_counts = {
+        word: count for word, count in word_counts.items()
+        if count >= min_word_freq and len(word) > 1
+    }
+    print(f"Found {len(word_counts)} unique words, keeping {len(frequent_word_counts)} with frequency >= {min_word_freq}.")
+
+    if not frequent_word_counts:
+        print("Warning: No frequent words found. Returning a default vocab size.")
+        return 2000
+
+    print("Creating NumPy structured array for processing...")
+    max_len = max(len(w) for w in frequent_word_counts.keys())
+    # Dynamic dtype based on maximum word length
+    structured_dtype = [('word', f'U{max_len}'), ('freq', 'i4'), ('rev_word', f'U{max_len}')]
+
+    word_data = np.array([
+        (word, freq, word[::-1]) for word, freq in frequent_word_counts.items()
+    ], dtype=structured_dtype)
+
+    affix_counts = Counter()
+
+    print("Finding common prefixes with NumPy sort...")
+    word_data.sort(order='word')
+    for i in tqdm.tqdm(range(len(word_data) - 1), desc="Analyzing prefixes"):
+        w1, w2 = word_data[i], word_data[i+1]
+        common_prefix = os.path.commonprefix([w1['word'], w2['word']])
+        if 1 < len(common_prefix) <= max_affix_len:
+            affix_counts[common_prefix] += w1['freq'] + w2['freq']
+
+    print("Finding common suffixes with NumPy sort...")
+    word_data.sort(order='rev_word')
+    for i in tqdm.tqdm(range(len(word_data) - 1), desc="Analyzing suffixes"):
+        rw1, rw2 = word_data[i], word_data[i+1]
+        common_rev_suffix = os.path.commonprefix([rw1['rev_word'], rw2['rev_word']])
+        if 1 < len(common_rev_suffix) <= max_affix_len:
+            affix_counts[common_rev_suffix[::-1]] += rw1['freq'] + rw2['freq']
+
+    print(f"Found {len(affix_counts)} potential affixes (morpheme candidates).")
+
+    if affix_counts:
+        num_examples = 15
+        top_affixes = [f"'{affix}' ({count})" for affix, count in affix_counts.most_common(num_examples)]
+        # Ensure we don't print more examples than we have
+        actual_examples_count = min(num_examples, len(top_affixes))
+        print(f"Top {actual_examples_count} examples: {', '.join(top_affixes)}")
+
+    if not affix_counts:
+        print("Warning: No common affixes found. Returning a default vocab size.")
+        return 2000
+
+    print(f"Calculating vocab size for {coverage_percentile:.0%} coverage...")
+    sorted_affixes = affix_counts.most_common()
+    total_affix_occurrences = sum(count for _, count in sorted_affixes)
+    target_coverage_sum = total_affix_occurrences * coverage_percentile
+
+    current_sum = 0
+    suggested_size = 0
+    for affix, count in sorted_affixes:
+        current_sum += count
+        suggested_size += 1
+        if current_sum >= target_coverage_sum:
+            break
+
+    base_size = 256
+    suggested_size_with_base = suggested_size + base_size
+
+    print(f"Analysis complete. {suggested_size} affixes are needed to cover {coverage_percentile:.0%} of all affix occurrences.")
+    print(f"--- Suggested Vocab Size: {suggested_size_with_base} ---")
+
+    return suggested_size_with_base
 
 class Alphabet(ABC):
     """Abstract Base Class for defining an alphabet handling interface."""
@@ -152,6 +248,12 @@ class CharacterMapper(AlphabetBMP):
         chr2chr.update(self.__custom_mapping_dict)
         return chr2chr, np_int2int
 
+    def _update_mappings(self, new_mappings: Dict[str, str]):
+        """Protected method to update the mapping dictionary and regenerate mappers."""
+        self.__custom_mapping_dict.update(new_mappings)
+        # Re-create the mappers with the new rules.
+        self._chr2chr, self._npint2int = self._create_mappers()
+
 
 class AdaptiveAlphabet(CharacterMapper):
     """An adaptive normalizer that learns character mappings from a text corpus.
@@ -159,8 +261,9 @@ class AdaptiveAlphabet(CharacterMapper):
     This class identifies characters not present in the source alphabet and
     suggests normalization rules based on Unicode decomposition (e.g., 'é' -> 'e').
     """
-    def __init__(self, src_alphabet: str, unknown_chr: str = ''):
-        super().__init__(src_alphabet=src_alphabet, mapping_dict={}, unknown_chr=unknown_chr)
+    def __init__(self, src_alphabet: str, unknown_chr: str = '', initial_mapping_dict: Dict[str, str] = None):
+        mapping_dict = initial_mapping_dict if initial_mapping_dict is not None else {}
+        super().__init__(src_alphabet=src_alphabet, mapping_dict=mapping_dict, unknown_chr=unknown_chr)
 
     def analyze_lost_chars(self, text: str) -> defaultdict:
         """Finds characters that are mapped to the unknown character and counts them."""
@@ -182,7 +285,7 @@ class AdaptiveAlphabet(CharacterMapper):
 
     def learn_mappings(self, text: str, strategy: str = 'normalize', min_freq: int = 2):
         """Learns and applies new character normalization rules from the text."""
-        print("\n--- Starting Autonomous Character Normalization ---")
+        print("\nStarting Autonomous Character Normalization")
         lost_chars = self.analyze_lost_chars(text)
         if not lost_chars:
             print("No characters require normalization. The source alphabet is comprehensive.")
@@ -208,34 +311,32 @@ class AdaptiveAlphabet(CharacterMapper):
 
         if new_mappings:
             print(f"Generated {len(new_mappings)} new mapping rules. Updating normalizer.")
-            self._CharacterMapper__custom_mapping_dict.update(new_mappings)
-            # Re-create the mappers with the new rules
-            self._chr2chr, self._npint2int = self._create_mappers()
+            self._update_mappings(new_mappings)
         else:
             print("No new normalization rules were generated based on the current strategy and threshold.")
         print("--- Character Normalization Complete ---\n")
 
-
 DEFAULT_PARAMS = {
-    'input_path': '/home/tamask/github/FLAME/mom_latin_public/cleaned',
-    'input_path2': '/media/tamask/DATA1/Variae_teszt/cassiodorus_variae/separated_beta',
+    'input_path': '',
+    'input_path2': '',
     'file_suffix': '.txt',
-    'keep_texts': 20000,
-    'ngram': 6,
+    'keep_texts': 100000,
+    'ngram': 8,
     'n_out': 1,
     'min_text_length': 150,
     'similarity_threshold': 'auto',
     'auto_threshold_method': 'otsu',
     'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'\"-()[]{}",
     'char_norm_strategy': 'normalize',
-    'char_norm_min_freq': 2
+    'char_norm_min_freq': 2,
+    'vocab_size': 'auto',
+    'vocab_min_word_freq': 3,
+    'vocab_coverage': 0.8,
 }
 
-
 class Flame:
-    """A comprehensive text similarity analysis pipeline.
+    """Text similarity analysis pipeline.
 
-    This class orchestrates the entire workflow:
     1. Loading and preprocessing text corpora.
     2. Generating features using a "Leave-N-Out" n-gram method.
     3. Calculating a sparse similarity matrix.
@@ -258,6 +359,8 @@ class Flame:
 
         self.encoder: Dict[str, int] = {}
         self.dist_mat = None # Will become a sparse matrix
+
+        self.sp_model = None
 
     def _find_text_files(self, input_path: str) -> List[pathlib.Path]:
         """Recursively finds all text files with a given suffix in a directory."""
@@ -312,23 +415,85 @@ class Flame:
         print(f"\nTotal texts for analysis: {len(corpus_for_learning)}")
 
         lowercased_corpus = [text.lower() for text in corpus_for_learning]
-        full_corpus_text = "\n".join(lowercased_corpus)
 
+        # MUFI character mappings (for me)
+        mufi_char_mappings = {
+            # One-to-many
+            'ß': 'ss', 'æ': 'ae', 'œ': 'oe',
+            # One-to-one
+            'ſ': 's', 'ꝇ': 'l', 'ꝑ': 'p',
+        }
+
+        one_to_many_mappings = {k: v for k, v in mufi_char_mappings.items() if len(v) > 1}
+        one_to_one_mappings = {k: v for k, v in mufi_char_mappings.items() if len(v) == 1}
+
+        print("\n--- Applying 1-to-many character replacements (e.g., ligatures) ---")
+        pre_processed_corpus = []
+        for text in tqdm.tqdm(lowercased_corpus, desc="Pre-processing"):
+            for src, dst in one_to_many_mappings.items():
+                text = text.replace(src, dst)
+            pre_processed_corpus.append(text)
+
+        full_corpus_text = "\n".join(pre_processed_corpus)
+        target_alphabet = self.args.char_norm_alphabet.replace(' ', '')
+
+        print("\n--- Initializing Character Normalizer with 1-to-1 MUFI rules ---")
         learner = AdaptiveAlphabet(
-            src_alphabet=self.args.char_norm_alphabet.replace(' ', ''),
-            unknown_chr=' '
+            src_alphabet=target_alphabet,
+            unknown_chr=' ',
+            initial_mapping_dict=one_to_one_mappings
         )
+
         learner.learn_mappings(
             full_corpus_text,
             strategy=self.args.char_norm_strategy,
             min_freq=self.args.char_norm_min_freq
         )
 
-        print("Applying learned normalization rules to the corpus...")
-        normalized_corpus_full = [learner(text) for text in tqdm.tqdm(lowercased_corpus, desc="Normalizing")]
+        print("Applying final normalization rules to the corpus...")
+        normalized_corpus_full = [learner(text) for text in tqdm.tqdm(pre_processed_corpus, desc="Normalizing")]
 
-        print("Tokenizing all documents...")
-        # Tokenize ONCE and build the encoder from these tokens.
+        print("\n--- Training Subword Tokenizer ---")
+        corpus_file = 'temp_corpus_for_spm.txt'
+        with open(corpus_file, 'w', encoding='utf-8') as f:
+            for line in normalized_corpus_full:
+                f.write(line + '\n')
+
+        if str(self.args.vocab_size).lower() == 'auto':
+            vocab_size = suggest_vocab_size_optimized(
+                normalized_corpus_full,
+                min_word_freq=self.args.vocab_min_word_freq,
+                coverage_percentile=self.args.vocab_coverage
+            )
+        else:
+            try:
+                vocab_size = int(self.args.vocab_size)
+                print(f"\n--- Using specified vocab size: {vocab_size} ---")
+            except ValueError:
+                print(f"Error: Invalid vocab_size '{self.args.vocab_size}'. Please provide a number or 'auto'.")
+                return
+
+        print("Counting unique words to determine maximum possible vocab size...")
+        all_words = set(word for line in normalized_corpus_full for word in line.split())
+
+        max_possible_size = len(all_words) + 256
+
+        if vocab_size > max_possible_size:
+            print(f"Warning: Requested vocab size ({vocab_size}) is larger than the number of unique words found ({len(all_words)}).")
+            print(f"Adjusting vocab size to the maximum possible value: {max_possible_size}")
+            vocab_size = max_possible_size
+
+        spm_model_prefix = 'spm_tokenizer'
+        spm_command = f'--input={corpus_file} --model_prefix={spm_model_prefix} --vocab_size={vocab_size} --model_type=bpe --minloglevel=1  --max_sentence_length=50000'
+
+        print(f"INFO: Training SentencePiece with final vocab_size: {vocab_size}")
+        spm.SentencePieceTrainer.train(spm_command)
+
+        self.sp_model = spm.SentencePieceProcessor()
+        self.sp_model.load(f'{spm_model_prefix}.model')
+        print("--- Subword Tokenizer Trained and Loaded ---\n")
+
+        print("Tokenizing all documents using subword tokenizer...")
         all_tokenized = [self.tokenize(text) for text in tqdm.tqdm(normalized_corpus_full, desc="Tokenizing")]
 
         self.encoder = self.get_encoder(all_tokenized)
@@ -344,12 +509,10 @@ class Flame:
             self.tokenized_corpus = all_tokenized
 
     def tokenize(self, text_str: str) -> List[str]:
-        """Tokenizes a string by extracting only alphanumeric sequences.
-
-        Assumes the input text has already been lowercased.
-        """
-        tokenizer = RegexpTokenizer(r'\w+')
-        return tokenizer.tokenize(text_str)
+        """Tokenizes a string using the trained SentencePiece model."""
+        if not self.sp_model:
+            raise RuntimeError("SentencePiece model is not loaded. Run load_corpus first.")
+        return self.sp_model.encode_as_pieces(text_str)
 
     def get_encoder(self, all_tokenized_docs: List[List[str]]) -> Dict[str, int]:
         """Creates a vocabulary mapping each unique token to an integer."""
@@ -575,7 +738,6 @@ class SimilarityVisualizer:
             gap2_start_analysis, gap2_end_analysis = curr.b + curr.size, next_.b
             if (1 <= (gap1_end_analysis - gap1_start_analysis) <= 3) and \
                (1 <= (gap2_end_analysis - gap2_start_analysis) <= 3):
-                if gap1_end_analysis > len(map_analysis_to_original1) or gap2_end_analysis > len(map_analysis_to_original2): continue
                 g1s_orig = map_analysis_to_original1[gap1_start_analysis]
                 g1e_orig = map_analysis_to_original1[gap1_end_analysis - 1] + 1
                 g2s_orig = map_analysis_to_original2[gap2_start_analysis]
@@ -813,29 +975,28 @@ document.addEventListener("DOMContentLoaded", function() {
         header = "DocumentFilename\tSimilarityFrequency\tRelatedDocuments\tLongSimilarities(>4words)\n"
         rows = [header]
 
-        num_docs = len(analyzer.corpus)
-        original_tokens_c1 = [text.split(' ') for text in analyzer.corpus]
-        tokenized_corpus_c1 = analyzer.tokenized_corpus
-
+        display_token_corpus1 = [word_tokenize(text) for text in analyzer.corpus]
         if analyzer.is_inter_comparison:
-            tokenized_corpus_c2 = analyzer.tokenized_corpus2
+            display_token_corpus2 = [word_tokenize(text) for text in analyzer.corpus2]
         else:
-            tokenized_corpus_c2 = tokenized_corpus_c1
+            display_token_corpus2 = display_token_corpus1
 
-
-        for i in tqdm.tqdm(range(num_docs), desc="Generating TSV summary"):
+        for i in tqdm.tqdm(range(len(analyzer.corpus)), desc="Generating TSV summary"):
             related_docs_indices = related_docs_map.get(i, [])
             long_segments = set()
             for related_idx in related_docs_indices:
-                sm = SequenceMatcher(None, tokenized_corpus_c1[i], tokenized_corpus_c2[related_idx], autojunk=False)
+                if related_idx >= len(display_token_corpus2): continue
+
+                sm = SequenceMatcher(None, display_token_corpus1[i], display_token_corpus2[related_idx], autojunk=False)
                 for a, _, size in sm.get_matching_blocks():
-                    if size > 4 and (a + size) <= len(original_tokens_c1[i]):
-                        long_segments.add(" ".join(original_tokens_c1[i][a:a+size]))
+                    if size > 4:
+                        segment = display_token_corpus1[i][a:a+size]
+                        long_segments.add(SimilarityVisualizer.detokenizer.detokenize(segment))
 
             if analyzer.is_inter_comparison:
-                 related_doc_names = sorted([analyzer.file_paths2[j].name for j in related_docs_indices])
+                related_doc_names = sorted([analyzer.file_paths2[j].name for j in related_docs_indices])
             else:
-                 related_doc_names = sorted([analyzer.file_paths[j].name for j in related_docs_indices])
+                related_doc_names = sorted([analyzer.file_paths[j].name for j in related_docs_indices])
 
             rows.append(f"{analyzer.file_paths[i].name}\t{len(related_doc_names)}\t{', '.join(related_doc_names) or 'None'}\t{' | '.join(f'\"{s}\"' for s in sorted(long_segments, key=len, reverse=True)) or 'None'}\n")
 
@@ -892,8 +1053,8 @@ document.addEventListener("DOMContentLoaded", function() {
 
 
 def main():
-    print("--- FLAME: Fast Linguistic Analysis and Matching Engine ---")
-    print("For command-line options, run with the --help flag.")
+    print("--- Formulaic Language Analysis in Medieval Expressions ---")
+    print("For command-line options, run with the -h flag.")
 
     analyzer = Flame()
     if (analyzer.args.ngram - analyzer.args.n_out) < 1:
@@ -914,16 +1075,14 @@ def main():
     else:
         final_threshold = float(analyzer.args.similarity_threshold)
 
-    visualizer = SimilarityVisualizer()
-
     if analyzer.dist_mat.shape[0] < 2000 and analyzer.dist_mat.shape[1] < 2000:
-        visualizer.plot_similarity_heatmap(analyzer)
+        SimilarityVisualizer.plot_similarity_heatmap(analyzer)
     else:
         print(f"Skipping heatmap generation for large matrix ({analyzer.dist_mat.shape[0]}x{analyzer.dist_mat.shape[1]}).")
 
-    visualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
-    visualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
-    visualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
+    SimilarityVisualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
+    SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
+    SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
 
 if __name__ == '__main__':
     main()
