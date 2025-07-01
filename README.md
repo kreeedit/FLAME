@@ -76,6 +76,7 @@ It is highly recommended to use a Python virtual environment.
     ```python
     import nltk
     nltk.download('punkt')
+    nltk.download('punkt_tab')
     ```
 ---
 
