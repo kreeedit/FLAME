@@ -317,10 +317,10 @@ class AdaptiveAlphabet(CharacterMapper):
         print("--- Character Normalization Complete ---\n")
 
 DEFAULT_PARAMS = {
-    'input_path': '/media/tamask/DATA1/Variae_teszt/HU-PBFL',
-    'input_path2': '/media/tamask/DATA1/Variae_teszt/cassiodorus_variae/separated_beta',
+    'input_path': '',
+    'input_path2': '',
     'file_suffix': '.txt',
-    'keep_texts': 10000,
+    'keep_texts': 100000,
     'ngram': 8,
     'n_out': 1,
     'min_text_length': 150,

@@ -1,0 +1,114 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Text Similarity Comparison</title><style>
+        body{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;margin:20px;line-height:1.6;background-color:#f8f9fa}
+        .comparison-block{margin-bottom:2em;background-color:#fff;padding:1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6}
+        .comparison-container{display:flex;gap:20px;flex-wrap:wrap}@media(min-width:768px){.comparison-container{flex-wrap:nowrap}}
+        .text-box{flex:1 1 100%;min-width:300px;padding:15px;border:1px solid #ced4da;border-radius:5px;background-color:#fff;height:400px;overflow-y:auto;position:relative}
+        h2{color:#212529;border-bottom:2px solid #e9ecef;padding-bottom:.5em; margin-top: 0;}
+        h3{color:#343a40;margin-top:0}
+        .similarity-score{font-weight:700;color:#0056b3}
+        .file-info{font-size:.9em;color:#6c757d;margin-bottom:.5em;font-weight:700}
+        .highlight{background-color:#fff3b8;border-radius:3px}
+        .highlight.clickable{cursor:pointer;transition:background-color .2s}
+        .highlight.clickable:hover{background-color:#ffe066}
+        .active-highlight{background-color:#ffd700;box-shadow:0 0 0 2px #ffc107}
+        .match-text{border-radius:3px;transition:background-color .3s}
+        .match-text.active{background-color:#fff3b8}
+        .bridge-words.highlighted{background-color:#f1c0c5;border-radius:3px}
+        .highlight .punct-in-match { color: #a0a0a0; }
+        .bridge-word-similar, .bridge-word-similar-static { border-radius: 3px; padding: 0 2px; }
+        .bridge-word-similar-static { background-color: #fff9e0; }
+        .bridge-word-similar { transition: background-color 0.3s ease-in-out; }
+        .bridge-word-similar.revealed { background-color: #fff9e0; }
+        #controls{margin-bottom:1.5em;background-color:#fff;padding:1em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6;}
+        .button-container { display: flex; gap: 10px; margin-top: 1em; }
+        .control-button { background-color:#28a745;color:#fff;padding:0.4em 0.8em;border:none;border-radius:4px;cursor:pointer;font-weight:700; font-size: 0.9em; }
+        .control-button.active { background-color:#dc3545; }
+        </style></head><body>
+        <div id="controls">
+            <h2>Interactive Text Similarity Comparison</h2>
+            <div class="button-container">
+                <button id="toggle-all-bridge-words" class="control-button">Show All Bridge Words</button>
+                <button id="toggle-all-similarities" class="control-button">Show All Similarities</button>
+            </div>
+        </div><div class="comparison-block" id="pair-1"><h3>Comparison: lambach_charter_1396_III_23 &harr; lambach_charter_1394_V_10</h3><div class="similarity-score">Cosine Similarity: 0.0665</div><div class="comparison-container"><div class="text-box"><p class="file-info">File 1: lambach_charter_1396_III_23</p><span>Ich Peter</span> <span class="highlight clickable" data-match-id="0" data-pair-id="1">von</span> <span>Geczelsdorf mein eleich hawsfraw vnd alle vnser paider eriben</span> <span class="highlight clickable" data-match-id="1" data-pair-id="1">uergehen vnd tun chunt offenbar mit dem brif allen den er fürpracht wirt daz</span> <span class="highlight clickable" data-match-id="2" data-pair-id="1">vns</span> <span class="highlight clickable" data-match-id="3" data-pair-id="1">vnser</span> <span>genediger herr abpt Symon</span> <span class="highlight clickable" data-match-id="4" data-pair-id="1">ze</span> <span>Lambach</span> <span class="highlight clickable" data-match-id="5" data-pair-id="1">durich</span> <span>vnser vleizzigen pet willen geurlaubt hat ze farn ab der halben hueb ze Geczelsdorf gelegen in Vorichdorffer pharr di wir von im</span> <span class="highlight clickable" data-match-id="6" data-pair-id="1">vnd von</span> <span>seinem gotzhaws</span> <span class="highlight clickable" data-match-id="7" data-pair-id="1">ze</span> <span>rechten eribrecht haben</span> <span class="highlight clickable" data-match-id="8" data-pair-id="1">in solicher beschaiden</span> <span class="highlight clickable" data-match-id="9" data-pair-id="1">daz</span> <span>wir im ierlichen allez daz</span> <span class="highlight clickable" data-match-id="10" data-pair-id="1">dauon dinen</span> <span>schullen</span> <span class="highlight clickable" data-match-id="11" data-pair-id="1">vnd</span> <span>wellen</span> <span class="highlight clickable" data-match-id="12" data-pair-id="1">daz</span> <span>wir von alter nach dez gotzhaws ze Lambach vrbarpuch lawt daruon dinen schullen vnd wellen auch noch schullen</span> <span class="highlight clickable" data-match-id="13" data-pair-id="1">dhain wandlung damit haben weder mit uerseczen noch mit uerchauffen noch mit dhainerlay weys an</span> <span>sein vnd seiner nachkomen hannt</span> <span class="highlight clickable" data-match-id="14" data-pair-id="1">vnd guten willen vnd</span> <span>schullen vnd wellen auch allez</span> <span class="highlight clickable" data-match-id="15" data-pair-id="1">daz</span> von dem obgenanten <span class="highlight clickable" data-match-id="16" data-pair-id="1">vnserm</span> <span>eribrecht leyden vnd dulden daz ander eribler dez gotzhaws ze Lambach leydent und duldent Sew haben auch hintz vns allew dew recht di sew hintz andern irs gotzhaws eriblern habent wo wir sein ez sey in stettn oder in merkchten oder anderswo daz wir</span> <span class="highlight clickable" data-match-id="17" data-pair-id="1">der</span> <span>fürsten dez landes freyung oder freybrif noch dhainer herschaft di wir gewinnen mugen oder darhinder wir vns verphlichten mugen nicht geniezzen schullen noch wellen geistleich noch werltleich gentzleich an geuer vnd waz wir darwider redten oder teten ez wer geistleich oder wertleich daz hat der obgenant vnser genediger herr abpt Symon vnd sein conuent allez behabt vnd wir uerloren an geuer Mit vrchund dez briffs versigelt mit der erbern vnd weysen Weykcharcz dez Trunten diczeit probst vnd richter ze Lambach vnd Michels dez Lerwuller paider anhangunden insigeln di sew durich vnser vleizzigen pet willen in vnd allen irn eriben an schaden an dem</span> <span class="highlight clickable" data-match-id="18" data-pair-id="1">brif</span> <span>gehangen habent darvnder ich mich obgenanter Peter von Geczelsdorf mit sampt mir mein hawsfraw vnd vnser paider eriben verpinden mit vnsern trewn in aidesweys allez daz stet ze haben daz in dem brif begriffen</span> <span class="highlight clickable" data-match-id="19" data-pair-id="1">ist</span> <span class="bridge-words">Daz ist beschehen</span> <span class="highlight clickable" data-match-id="20" data-pair-id="1">nach Christi</span> geburt <span class="bridge-word-similar-static">drewzehenhundert</span> <span class="highlight clickable" data-match-id="21" data-pair-id="1">jar darnach in dem</span> <span class="bridge-word-similar-static">sechsvndnewnczigisten</span> <span class="highlight clickable" data-match-id="22" data-pair-id="1">jar an</span> Phincztag vor sand Rudprechtcztag</div><div class="text-box"><p class="file-info">File 2: lambach_charter_1394_V_10</p><span>Wir Vlreich</span> <span class="match-text" data-match-id="0" data-pair-id="1">von</span> <span>Gots genaden abpt ze Lambach</span> <span class="match-text" data-match-id="1" data-pair-id="1">uergehen vnd tun chunt offenbar mit dem brif allen den er fürpracht wirt daz</span> <span>für</span> <span class="match-text" data-match-id="2" data-pair-id="1">vns</span> <span>chomen sind Dytreich Sneider vnd sein pruder Hainreich von Wufing Hainreich Goczmair vnd Elspet Lipharts von Horipach tochter vnd habent mit aller irer eriben gutleichen willen vnd wart mit</span> <span class="match-text" data-match-id="3" data-pair-id="1">vnser</span> <span>hant vnd mit gantzer stet recht vnd redleich</span> <span class="match-text" data-match-id="4" data-pair-id="1">ze</span> <span>ainem rechten sacz nach dem landes recht ob der Enns uersazt irn tail sa sew gehabt habent an dem Aygen ze Horipach vnd ist der tayl gelegen pey der wys mit alle dem daz</span> <span class="match-text" data-match-id="5" data-pair-id="1">durich</span> <span>recht</span> <span class="match-text" data-match-id="6" data-pair-id="1">vnd von</span> <span>alter dartzu gehört vnd dauon bechomen mag</span> <span class="match-text" data-match-id="7" data-pair-id="1">ze</span> <span>holtz ze ueld ze wysmad uersucht vnd vnuersucht Fridreichen Weygleins dez Sneider von Horipach svn seiner eleichen hawsfrawn Margarethen vnd allen seinen eriben vmb fumf phunt Wyenner phening der sew gantz vnd gar von in bericht vnd betzalt sind</span> <span class="match-text" data-match-id="8" data-pair-id="1">in solicher beschaiden</span> <span>ob yemant herfür chäm der pezzer erib dartzu wer der hat jerleich lösung darauf in den negsten acht tagen uor Lichtmess oder hinnach in den negsten acht tagen vmb fumf phunt Wyenner phenning vnd vmb nicht mer Wir offen auch</span> <span class="match-text" data-match-id="9" data-pair-id="1">daz</span> <span>man vns vnd vnserm gotzhaws jerleich</span> <span class="match-text" data-match-id="10" data-pair-id="1">dauon dinen</span> <span class="match-text" data-match-id="11" data-pair-id="1">vnd</span> <span>raichen sol an vnser Frawn tag ze der dinstzeit tzehen Wyenner phenning an sand Gorigentag virdhalben Wyenner phenning ze vogtstewr an sand Michelstag virdhalben Wyenner phenning ze weinfur vnd ain hun vnd nicht mer Wir melden auch wer</span> <span class="match-text" data-match-id="12" data-pair-id="1">daz</span> <span>obgenant gut inne hat sol</span> <span class="match-text" data-match-id="13" data-pair-id="1">dhain wandlung damit haben weder mit uerseczen noch mit uerchauffen noch mit dhainerlay weys an</span> <span>vnser hant</span> <span class="match-text" data-match-id="14" data-pair-id="1">vnd guten willen vnd</span> <span>vnuertzigen vnsers gotzhaus rechten in allen sachen</span> <span class="match-text" data-match-id="15" data-pair-id="1">Daz</span> bestetigen wir mit <span class="match-text" data-match-id="16" data-pair-id="1">vnserm</span> <span>anhangundem insigel</span> <span class="match-text" data-match-id="17" data-pair-id="1">Der</span> <span class="match-text" data-match-id="18" data-pair-id="1">brif</span> <span class="match-text" data-match-id="19" data-pair-id="1">ist</span> <span class="bridge-words">geben</span> <span class="match-text" data-match-id="20" data-pair-id="1">nach Christi</span> gepurd <span class="bridge-word-similar">drewtzehenhundert</span> <span class="match-text" data-match-id="21" data-pair-id="1">jar darnach in dem</span> <span class="bridge-word-similar">uirvndnewntzigisten</span> <span class="match-text" data-match-id="22" data-pair-id="1">jar an</span> Suntag so man singt Jubilate deo omnis terra</div></div></div>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const toggleBridgeBtn = document.getElementById("toggle-all-bridge-words");
+    const toggleSimilaritiesBtn = document.getElementById("toggle-all-similarities");
+
+    if (toggleBridgeBtn) {
+        toggleBridgeBtn.addEventListener("click", function() {
+            const isActive = this.classList.toggle("active");
+            document.querySelectorAll(".bridge-words").forEach(el => el.classList.toggle("highlighted", isActive));
+            this.textContent = isActive ? "Hide All Bridge Words" : "Show All Bridge Words";
+        });
+    }
+
+    if (toggleSimilaritiesBtn) {
+        toggleSimilaritiesBtn.addEventListener("click", function() {
+            const isActive = this.classList.toggle("active");
+            this.textContent = isActive ? "Hide All Similarities" : "Show All Similarities";
+            document.querySelectorAll('.bridge-word-similar').forEach(el => el.classList.toggle('revealed', isActive));
+            document.querySelectorAll('.match-text').forEach(el => el.classList.toggle('active', isActive));
+        });
+    }
+
+    document.body.addEventListener("click", function(event) {
+        if (event.target.classList.contains("highlight") && event.target.classList.contains("clickable")) {
+            const matchId = event.target.dataset.matchId;
+            const pairId = event.target.dataset.pairId;
+            const comparisonBlock = document.getElementById(`pair-${pairId}`);
+            if (!comparisonBlock) return;
+            const wasActive = event.target.classList.contains("active-highlight");
+            clearAllHighlights(comparisonBlock);
+            if (!wasActive) {
+                highlightPair(comparisonBlock, pairId, matchId);
+                scrollToPartner(comparisonBlock, pairId, matchId);
+                revealAdjacentSimilarWords(comparisonBlock, pairId, matchId);
+            }
+        }
+    });
+
+    function clearAllHighlights(block) {
+        block.querySelectorAll(".active-highlight").forEach(el => el.classList.remove("active-highlight"));
+        block.querySelectorAll(".match-text.active").forEach(el => el.classList.remove("active"));
+        block.querySelectorAll(".bridge-word-similar.revealed").forEach(el => el.classList.remove("revealed"));
+    }
+
+    function highlightPair(block, pairId, matchId) {
+        block.querySelector(`.highlight.clickable[data-pair-id="${pairId}"][data-match-id="${matchId}"]`)?.classList.add("active-highlight");
+        block.querySelector(`.match-text[data-pair-id="${pairId}"][data-match-id="${matchId}"]`)?.classList.add("active");
+    }
+
+    function scrollToPartner(block, pairId, matchId) {
+        const partnerEl = block.querySelector(`.match-text.active[data-pair-id="${pairId}"][data-match-id="${matchId}"]`);
+        const textBox = partnerEl?.closest(".text-box");
+        if (textBox && partnerEl) {
+            const boxRect = textBox.getBoundingClientRect();
+            const partnerRect = partnerEl.getBoundingClientRect();
+            const scrollOffset = (partnerRect.top - boxRect.top) - (textBox.clientHeight / 2) + (partnerRect.height / 2);
+            textBox.scrollTop += scrollOffset;
+        }
+    }
+
+    function revealAdjacentSimilarWords(block, pairId, matchId) {
+        const clickedEl = block.querySelector(`.highlight.clickable.active-highlight[data-pair-id="${pairId}"][data-match-id="${matchId}"]`);
+        const partnerEl = block.querySelector(`.match-text.active[data-pair-id="${pairId}"][data-match-id="${matchId}"]`);
+        const revealFor = (element) => {
+            if (!element) return;
+            const prevSibling = element.previousElementSibling;
+            if (prevSibling && prevSibling.classList.contains('bridge-word-similar')) {
+                prevSibling.classList.add('revealed');
+            }
+            const nextSibling = element.nextElementSibling;
+            if (nextSibling && nextSibling.classList.contains('bridge-word-similar')) {
+                nextSibling.classList.add('revealed');
+            }
+        };
+        revealFor(clickedEl);
+        revealFor(partnerEl);
+    }
+});
+</script>
+</body>
+</html>
