@@ -317,8 +317,8 @@ class AdaptiveAlphabet(CharacterMapper):
         print("--- Character Normalization Complete ---\n")
 
 DEFAULT_PARAMS = {
-    'input_path': '/media/tamask/DATA1/in_nomine_charters',
-    'input_path2': '',
+    'input_path': '/media/tamask/DATA1/Variae_teszt/HU-PBFL',
+    'input_path2': '/media/tamask/DATA1/Variae_teszt/cassiodorus_variae/separated_beta',
     'file_suffix': '.txt',
     'keep_texts': 100000,
     'ngram': 8,
@@ -484,7 +484,7 @@ class Flame:
             vocab_size = max_possible_size
 
         spm_model_prefix = 'spm_tokenizer'
-        spm_command = f'--input={corpus_file} --model_prefix={spm_model_prefix} --vocab_size={vocab_size} --model_type=bpe --minloglevel=1  --max_sentence_length=50000'
+        spm_command = f'--input={corpus_file} --model_prefix={spm_model_prefix} --vocab_size={vocab_size} --model_type=bpe --minloglevel=1  --max_sentence_length=80000'
 
         print(f"INFO: Training SentencePiece with final vocab_size: {vocab_size}")
         spm.SentencePieceTrainer.train(spm_command)
