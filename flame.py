@@ -317,18 +317,18 @@ class AdaptiveAlphabet(CharacterMapper):
         print("--- Character Normalization Complete ---\n")
 
 DEFAULT_PARAMS = {
-    'input_path': '',
-    'input_path2': '',
+    'input_path': '/media/tamask/DATA1/Variae_teszt/HU-PBFL',
+    'input_path2': '/media/tamask/DATA1/Variae_teszt/cassiodorus_variae/separated_beta',
     'file_suffix': '.txt',
-    'keep_texts': 100000,
+    'keep_texts': 10000,
     'ngram': 8,
-    'n_out': 1,
+    'n_out': 3,
     'min_text_length': 150,
     'similarity_threshold': 'auto',
     'auto_threshold_method': 'otsu',
-    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'\"-()[]{}",
+    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyz",
     'char_norm_strategy': 'normalize',
-    'char_norm_min_freq': 2,
+    'char_norm_min_freq': 1,
     'vocab_size': 'auto',
     'vocab_min_word_freq': 3,
     'vocab_coverage': 0.85,
@@ -419,9 +419,9 @@ class Flame:
         # MUFI character mappings (for me)
         mufi_char_mappings = {
             # One-to-many
-            'ß': 'ss', 'æ': 'ae', 'œ': 'oe',
+            'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'ĳ': 'ij', 'ð': 'dh', 'þ': 'th', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬆ': 'st',
             # One-to-one
-            'ſ': 's', 'ꝇ': 'l', 'ꝑ': 'p',
+            'ſ': 's', 'ꝇ': 'l', 'ꝑ': 'p', 'v': 'u', 'j': 'i', 'ꝛ': 'r', 'ƿ': 'w', 'ᵹ': 'g', 'ꝺ': 'd', 'ꝼ': 'f'
         }
 
         one_to_many_mappings = {k: v for k, v in mufi_char_mappings.items() if len(v) > 1}
@@ -672,43 +672,59 @@ class Flame:
 
 
 class SimilarityVisualizer:
-    """A collection of static methods for visualizing similarity results."""
     detokenizer = TreebankWordDetokenizer()
 
     @staticmethod
-    def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], is_bridge: bool, similarity_threshold: float = 0.75) -> Tuple[str, str]:
-        """Renders the gap between two matching blocks as HTML.
-
-        It highlights similar word pairs within the gap. In the left-side text,
-        this highlight is static, while on the right it is dynamic (JS-controlled).
-
-        Args:
-            gap1_tokens: Tokens from the gap in the first text.
-            gap2_tokens: Tokens from the gap in the second text.
-            is_bridge: Whether the gap qualifies as a "bridge" (short enough).
-            similarity_threshold: Levenshtein ratio for considering words similar.
-
-        Returns:
-            A tuple containing the HTML strings for the first and second gap.
+    def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], is_bridge: bool, similarity_threshold: float = 0.65) -> Tuple[str, str]:
         """
-        if not is_bridge or len(gap1_tokens) != len(gap2_tokens) or not gap1_tokens:
-            tag = 'span class="bridge-words"' if is_bridge else 'span'
-            html1 = f'<{tag}>{SimilarityVisualizer.detokenizer.detokenize(gap1_tokens)}</{tag.split()[0]}>' if gap1_tokens else ''
-            html2 = f'<{tag}>{SimilarityVisualizer.detokenizer.detokenize(gap2_tokens)}</{tag.split()[0]}>' if gap2_tokens else ''
-            return html1, html2
+        Renders the gap between two matching blocks based on a definitive, simplified logic.
 
-        parts1, parts2 = [], []
-        for t1, t2 in zip(gap1_tokens, gap2_tokens):
-            if Levenshtein.ratio(t1.lower(), t2.lower()) >= similarity_threshold:
-                parts1.append(f'<span class="bridge-word-similar-static">{t1}</span>')
-                parts2.append(f'<span class="bridge-word-similar">{t2}</span>')
+        1. It counts the real number of words in a gap, ignoring punctuation.
+        2. It ONLY analyzes short gaps (0-3 words). Longer gaps are rendered as plain text.
+        3. It compares the entire text content of the short gap as a single unit.
+        4. The entire gap is then colored either yellow (similar) or pink (dissimilar).
+        """
+
+        # Counting real words (without punctuation)
+        words1 = [token for token in gap1_tokens if token.isalnum()]
+        words2 = [token for token in gap2_tokens if token.isalnum()]
+        num_words1 = len(words1)
+        num_words2 = len(words2)
+
+        # Create full gap texts for display and comparison
+        str1 = SimilarityVisualizer.detokenizer.detokenize(gap1_tokens)
+        str2 = SimilarityVisualizer.detokenizer.detokenize(gap2_tokens)
+
+        # If both gaps are completely empty, there is nothing to do.
+        if not str1 and not str2:
+            return "", ""
+
+        # Applying the main rule by word count
+        # Pnly analyse the short gaps where there is content.
+        if (num_words1 <= 3) and (num_words2 <= 3) and (num_words1 + num_words2 > 0) :
+
+            # Calculation of a single Levenshtein ratio for total gaps.
+            ratio = Levenshtein.ratio(str1.lower(), str2.lower())
+
+            # Depending on the similarity, the whole gap is given the right style.
+            if ratio >= similarity_threshold:
+                # Very similar -> pale yellow
+                html1 = f'<span class="bridge-word-similar-static">{str1}</span>'
+                html2 = f'<span class="bridge-word-similar-static">{str2}</span>'
             else:
-                parts1.append(t1)
-                parts2.append(t2)
+                # Not similar -> reddish
+                html1 = f'<span class="bridge-word-dissimilar">{str1}</span>'
+                html2 = f'<span class="bridge-word-dissimilar">{str2}</span>'
+        else:
+            # Long gap (>3 words) or completely empty gap -> plain text, no highlighting
+            html1 = str1
+            html2 = str2
 
-        # Simple detokenization for mixed HTML/text lists.
-        html1 = " ".join(parts1).replace(" ,", ",").replace(" .", ".").replace(" ;", ";").replace(" :", ":")
-        html2 = " ".join(parts2).replace(" ,", ",").replace(" .", ".").replace(" ;", ";").replace(" :", ":")
+        # The .bridge-words wrapper is preserved to allow the frame highlight button to work on short, parsed gaps.
+        if (num_words1 <= 3) and (num_words2 <= 3) and (num_words1 + num_words2 > 0) :
+             html1 = f'<span class="bridge-words">{html1}</span>' if html1 else ""
+             html2 = f'<span class="bridge-words">{html2}</span>' if html2 else ""
+
         return html1, html2
 
     @staticmethod
@@ -736,8 +752,8 @@ class SimilarityVisualizer:
             curr, next_ = raw_matching_blocks[idx], raw_matching_blocks[idx+1]
             gap1_start_analysis, gap1_end_analysis = curr.a + curr.size, next_.a
             gap2_start_analysis, gap2_end_analysis = curr.b + curr.size, next_.b
-            if (1 <= (gap1_end_analysis - gap1_start_analysis) <= 3) and \
-               (1 <= (gap2_end_analysis - gap2_start_analysis) <= 3):
+            if (1 <= (gap1_end_analysis - gap1_start_analysis) <= 5) and \
+               (1 <= (gap2_end_analysis - gap2_start_analysis) <= 5):
                 g1s_orig = map_analysis_to_original1[gap1_start_analysis]
                 g1e_orig = map_analysis_to_original1[gap1_end_analysis - 1] + 1
                 g2s_orig = map_analysis_to_original2[gap2_start_analysis]
@@ -822,12 +838,15 @@ class SimilarityVisualizer:
         .match-text{border-radius:3px;transition:background-color .3s}
         .match-text.active{background-color:#fff3b8}
 
+        .hover-highlight {background-color: #ffe066 !important; /* Sötétebb sárga, a !important biztosítja a felülírást */ box-shadow: 0 0 0 2px #ffc107;}
+
         /* --- Styles for Bridge Words (gaps between matches) --- */
-        .bridge-words.highlighted{background-color:#f1c0c5;border-radius:3px}
-        .bridge-word-similar, .bridge-word-similar-static { border-radius: 3px; padding: 0 2px; }
-        .bridge-word-similar-static { background-color: #fff9e0; } /* Static highlight for left pane */
-        .bridge-word-similar { transition: background-color 0.3s ease-in-out; }
-        .bridge-word-similar.revealed { background-color: #fff9e0; } /* Dynamic highlight for right pane */
+        .bridge-words.highlighted { outline: 1px dotted #e57373; } /* Háttér helyett csak egy keret jelzi a "bridge"-et */
+        .bridge-word-similar-static { background-color: #fff9e0; border-radius: 3px; padding: 0 2px; } /* Sárga kiemelés a hasonló szavaknak */
+        .bridge-word-dissimilar { background-color: #ffcdd2; border-radius: 3px; padding: 0 2px; } /* Pirosas kiemelés a nem hasonló eltéréseknek */
+
+        .bridge-word-similar { border-radius: 3px; padding: 0 2px; transition: background-color 0.3s ease-in-out; }
+        .bridge-word-similar.revealed { background-color: #fff9e0; }
 
         /* --- Control Panel and Button Styles --- */
         #controls{margin-bottom:1.5em;background-color:#fff;padding:1em 1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6;}
@@ -870,16 +889,92 @@ class SimilarityVisualizer:
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     // --- Element Selectors ---
-    const toggleBridgeBtn = document.getElementById("toggle-all-bridge-words");
     const toggleSimilaritiesBtn = document.getElementById("toggle-all-similarities");
+    const comparisonBlocks = document.querySelectorAll(".comparison-block");
+
+    // --- Helper Functions ---
+    function clearAllActiveHighlights(block) {
+        block.querySelectorAll(".active-highlight").forEach(el => el.classList.remove("active-highlight"));
+        block.querySelectorAll(".match-text.active").forEach(el => el.classList.remove("active"));
+    }
+
+    function highlightPair(block, pairId, matchId) {
+        block.querySelector(`.highlight.clickable[data-pair-id="${pairId}"][data-match-id="${matchId}"]`)?.classList.add("active-highlight");
+        block.querySelector(`.match-text[data-pair-id="${pairId}"][data-match-id="${matchId}"]`)?.classList.add("active");
+    }
+
+    function scrollToPartner(block, pairId, matchId) {
+        const partnerEl = block.querySelector(`.match-text[data-pair-id="${pairId}"][data-match-id="${matchId}"], .match-text.active[data-pair-id="${pairId}"][data-match-id="${matchId}"]`);
+        const textBox = partnerEl?.closest(".text-box");
+        if (textBox && partnerEl) {
+            const boxRect = textBox.getBoundingClientRect();
+            const partnerRect = partnerEl.getBoundingClientRect();
+            const scrollOffset = (partnerRect.top - boxRect.top) - (textBox.clientHeight / 2) + (partnerRect.height / 2);
+            textBox.scrollTop += scrollOffset;
+        }
+    }
+
+    // --- Global Toggle Button Logic ---
+    if (toggleSimilaritiesBtn) {
+        toggleSimilaritiesBtn.addEventListener("click", function() {
+            const isActive = this.classList.toggle("active");
+            this.textContent = isActive ? "Hide All Similarities" : "Show All Similarities";
+            // Alkalmazzuk a kiemelést az összes releváns elemre
+            document.querySelectorAll('.bridge-word-similar-static, .match-text').forEach(el => {
+                el.classList.toggle('active', isActive);
+            });
+             // Ha kikapcsoljuk, a specifikus aktív kijelöléseket is töröljük
+            if (!isActive) {
+                document.querySelectorAll('.comparison-block').forEach(block => clearAllActiveHighlights(block));
+            }
+        });
+    }
+    document.body.addEventListener("click", function(event) {
+        const target = event.target;
+        if (target.classList.contains("highlight") && target.classList.contains("clickable")) {
+            const pairId = target.dataset.pairId;
+            const matchId = target.dataset.matchId;
+            const comparisonBlock = target.closest('.comparison-block');
+            if (!comparisonBlock) return;
+
+            const isGlobalModeActive = toggleSimilaritiesBtn.classList.contains("active");
+
+            if (isGlobalModeActive) {
+                scrollToPartner(comparisonBlock, pairId, matchId);
+            } else {
+                const wasActive = target.classList.contains("active-highlight");
+                clearAllActiveHighlights(comparisonBlock);
+                if (!wasActive) {
+                    highlightPair(comparisonBlock, pairId, matchId);
+                    scrollToPartner(comparisonBlock, pairId, matchId);
+                }
+            }
+        }
+    });
+
+    document.body.addEventListener('mouseover', function(event) {
+        const target = event.target;
+        if (target.classList.contains("highlight") || target.classList.contains("match-text")) {
+            const pairId = target.dataset.pairId;
+            const matchId = target.dataset.matchId;
+            const comparisonBlock = target.closest('.comparison-block');
+            if (!comparisonBlock || !pairId || !matchId) return;
+
+            comparisonBlock.querySelector(`.highlight.clickable[data-pair-id="${pairId}"][data-match-id="${matchId}"]`)?.classList.add("hover-highlight");
+            comparisonBlock.querySelector(`.match-text[data-pair-id="${pairId}"][data-match-id="${matchId}"]`)?.classList.add("hover-highlight");
+        }
+    });
+
+    document.body.addEventListener('mouseout', function(event) {
+        document.querySelectorAll('.hover-highlight').forEach(el => el.classList.remove('hover-highlight'));
+    });
+
+    const toggleBridgeBtn = document.getElementById("toggle-all-bridge-words");
     const minSlider = document.getElementById("min-similarity");
     const maxSlider = document.getElementById("max-similarity");
     const minValSpan = document.getElementById("min-similarity-val");
     const maxValSpan = document.getElementById("max-similarity-val");
-    const comparisonBlocks = document.querySelectorAll(".comparison-block");
 
-    // --- Global Toggle Button Logic ---
-    // Toggles the visibility of "bridge words" (text between matching blocks).
     if (toggleBridgeBtn) {
         toggleBridgeBtn.addEventListener("click", function() {
             const isActive = this.classList.toggle("active");
@@ -887,63 +982,7 @@ document.addEventListener("DOMContentLoaded", function() {
             this.textContent = isActive ? "Hide All Bridge Words" : "Show All Bridge Words";
         });
     }
-    // Toggles the visibility of all similar word highlights across all pairs.
-    if (toggleSimilaritiesBtn) {
-        toggleSimilaritiesBtn.addEventListener("click", function() {
-            const isActive = this.classList.toggle("active");
-            this.textContent = isActive ? "Hide All Similarities" : "Show All Similarities";
-            document.querySelectorAll('.bridge-word-similar').forEach(el => el.classList.toggle('revealed', isActive));
-            document.querySelectorAll('.match-text').forEach(el => el.classList.toggle('active', isActive));
-        });
-    }
 
-    // --- Interactive Highlighting Logic ---
-    // Main event listener for clicking on highlighted text.
-    document.body.addEventListener("click", function(event) {
-        if (event.target.classList.contains("highlight") && event.target.classList.contains("clickable")) {
-            const matchId = event.target.dataset.matchId;
-            const pairId = event.target.dataset.pairId;
-            const comparisonBlock = document.querySelector(`.comparison-block[data-pair-id='${pairId}']`);
-            if (!comparisonBlock) return;
-
-            const wasActive = event.target.classList.contains("active-highlight");
-            clearAllHighlights(comparisonBlock); // Clear previous highlights within the same block.
-
-            if (!wasActive) {
-                highlightPair(comparisonBlock, pairId, matchId);
-                scrollToPartner(comparisonBlock, pairId, matchId);
-            }
-        }
-    });
-
-    // Clears all active highlights within a specific comparison block.
-    function clearAllHighlights(block) {
-        block.querySelectorAll(".active-highlight").forEach(el => el.classList.remove("active-highlight"));
-        block.querySelectorAll(".match-text.active").forEach(el => el.classList.remove("active"));
-        block.querySelectorAll(".bridge-word-similar.revealed").forEach(el => el.classList.remove("revealed"));
-    }
-
-    // Activates the highlight for a clicked match and its partner.
-    function highlightPair(block, pairId, matchId) {
-        block.querySelector(`.highlight.clickable[data-match-id="${matchId}"]`)?.classList.add("active-highlight");
-        block.querySelector(`.match-text[data-match-id="${matchId}"]`)?.classList.add("active");
-    }
-
-    // Scrolls the partner text box to bring the corresponding match into view.
-    function scrollToPartner(block, pairId, matchId) {
-        const partnerEl = block.querySelector(`.match-text.active[data-match-id="${matchId}"]`);
-        const textBox = partnerEl?.closest(".text-box");
-        if (textBox && partnerEl) {
-            const boxRect = textBox.getBoundingClientRect();
-            const partnerRect = partnerEl.getBoundingClientRect();
-            // Calculate the scroll position to center the element vertically.
-            const scrollOffset = (partnerRect.top - boxRect.top) - (textBox.clientHeight / 2) + (partnerRect.height / 2);
-            textBox.scrollTop += scrollOffset;
-        }
-    }
-
-    // --- Range Slider Filtering Logic ---
-    // Hides or shows comparison blocks based on the slider's value range.
     function filterDocuments() {
         const minVal = parseFloat(minSlider.value);
         const maxVal = parseFloat(maxSlider.value);
@@ -957,9 +996,7 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // Initializes the sliders with values passed from the Python script.
     function setupSliders() {
-        // Retrieve thresholds from data attributes on the body tag.
         const minDisplayThreshold = document.body.dataset.minDisplayThreshold || "0.0";
         const initialThreshold = document.body.dataset.initialThreshold || "0.75";
 
@@ -967,8 +1004,8 @@ document.addEventListener("DOMContentLoaded", function() {
         maxSlider.min = minDisplayThreshold;
         minSlider.max = "1.0";
         maxSlider.max = "1.0";
-        minSlider.value = initialThreshold; // Set the default lower bound.
-        maxSlider.value = "1.0"; // Set the default upper bound.
+        minSlider.value = initialThreshold;
+        maxSlider.value = "1.0";
 
         minValSpan.textContent = parseFloat(minSlider.value).toFixed(3);
         maxValSpan.textContent = parseFloat(maxSlider.value).toFixed(3);
@@ -976,8 +1013,8 @@ document.addEventListener("DOMContentLoaded", function() {
         minSlider.addEventListener("input", () => {
             let minVal = parseFloat(minSlider.value);
             let maxVal = parseFloat(maxSlider.value);
-            if (minVal >= maxVal) { // Prevent the min slider from crossing the max slider.
-                minSlider.value = maxVal - 0.001;
+            if (minVal >= maxVal) {
+                minSlider.value = maxVal - 0.001 < parseFloat(minSlider.min) ? minSlider.min : maxVal - 0.001;
                 minVal = parseFloat(minSlider.value);
             }
             minValSpan.textContent = minVal.toFixed(3);
@@ -986,23 +1023,23 @@ document.addEventListener("DOMContentLoaded", function() {
         maxSlider.addEventListener("input", () => {
             let minVal = parseFloat(minSlider.value);
             let maxVal = parseFloat(maxSlider.value);
-            if (maxVal <= minVal) { // Prevent the max slider from crossing the min slider.
-                maxSlider.value = minVal + 0.001;
+            if (maxVal <= minVal) {
+                maxSlider.value = minVal + 0.001 > parseFloat(maxSlider.max) ? maxSlider.max : minVal + 0.001;
                 maxVal = parseFloat(maxSlider.value);
             }
             maxValSpan.textContent = maxVal.toFixed(3);
             filterDocuments();
         });
-        filterDocuments(); // Apply the initial filter when the page loads.
+        filterDocuments();
     }
     setupSliders();
 });
 </script>
 </body>
-</html>"""
+</html>
+"""
 
         # Determine the absolute lower bound for pairs to include in the HTML file.
-        # This improves performance by not processing very dissimilar pairs.
         min_display_threshold = max(0.0, similarity_threshold - interactive_range_width)
         print(f"INFO: HTML report will include pairs with similarity >= {min_display_threshold:.4f}")
         print(f"INFO: The default view will be filtered to >= {similarity_threshold:.4f}")
