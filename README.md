@@ -191,7 +191,7 @@ DEFAULT_PARAMS = {
     'vocab_coverage': 0.85,
 }
 ```
-```
+
 ### Find formulaic languages / arengas
 This is the balanced approach. It allows for significant variation (n_out) within a moderately sized window (ngram).
 
