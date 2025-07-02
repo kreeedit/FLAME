@@ -3,7 +3,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**FLAME** is a Python-based tool with both **Command-Line (CLI)** and **Graphical (GUI)** interfaces, designed for identifying and analyzing formulaic language and text reuse, particularly in historical corpora like medieval charters. It uses a **Leave-N-Out (LNO) n-gram** approach, which is highly effective for detecting variant forms of expressions that differ due to scribal variations, regional dialects, or other textual modifications.
+**FLAME** is a Python-based tool with both **Command-Line (CLI)** and **Graphical (GUI)** interfaces, designed for identifying and analyzing formulaic language and text reuse, particularly in historical corpora like medieval charters. It uses a **Leave-N-Out (LNO) n-gram** approach, which is highly effective for detecting variant forms of expressions that differ due to scribal variations, regional dialects, or other textual modifications. It automatically learn normalization rules from the corpus itself (handling medieval ligatures and special characters), uses subword tokenization to handle rare words and morphological variants. Automatically suggest an optimal vocabulary size for the tokenizer based on the corpus's statistical properties. It perform both intra-corpus and inter-corpus comparisons, and automatically determine an optimal similarity cutoff score using Otsu's method.
 
 A downloadable demo of the HTML output can be found in the repository (`text_comparisons_demo.html`).
 
@@ -27,14 +27,14 @@ Consider the medieval charter opening: *"In nomine sancte et individue trinitati
 
 The LNO-gram method offers a balance of context-preservation and flexibility that is often superior to traditional n-grams or skip-grams for historical text analysis.
 
-| Method | Input Text | Generated Patterns (Examples) | Match Score | Notes |
-|--------|------------|-------------------|-------------|--------|
-| **N-gram** | `In nomine sancte et individue` | `[In nomine sancte et individue]` | 1.0 | Rigid, requires perfect match. |
-| (n=5) | `In dei nomine sancte et` | `[In dei nomine sancte et]` | 0.0 | Fails with minor variation. |
-| **Skip-gram**| `In nomine sancte et individue` | `[In sancte]`, `[nomine et]` | ~0.4 | Loses word order and context. |
-| (n=2, k=1) | `In dei nomine sancte et` | `[In nomine]`, `[dei sancte]` | ~0.3 | Creates many noisy pairs. |
-| **LNO-gram**| `In nomine sancte et individue` | `[_ nomine sancte et individue]`, ... | ~0.92 | High flexibility, preserves context. |
-| (n=5, r=1) | `In dei nomine sancte et` | `[dei nomine sancte et _]`, ... | ~0.85 | Effectively captures variants. |
+| Method | Input Text | Subword Tokens (Example) | Generated Patterns (Examples) | Match Score | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **N-gram** | `In nomine sancte et individue` | `[' In', ' nomine', ' sancte', ' et', ' individue']` | `[In nomine sancte et individue]` | 1.0 | Rigid. Fails if a single word changes (e.g., `dei` for `nomine`). |
+| (n=5) | `In dei nomine sancte et` | `[' In', ' dei', ' nomine', ' sancte', ' et']` | `[In dei nomine sancte et]` | 0.0 | No tolerance for variation. |
+| **Skip-gram**| `In nomine sancte et individue` | `[' In', ' nomine', ' sancte', ' et', ' individue']` | `[In sancte]`, `[nomine et]` | ~0.4 | Loses word order and creates noisy, out-of-context pairs. |
+| (n=2, k=1) | `In dei nomine sancte et` | `[' In', ' dei', ' nomine', ' sancte', ' et']` | `[In nomine]`, `[dei sancte]` | ~0.3 | High noise, low contextual accuracy. |
+| **FLAME** | `In nomine sancte et individue` | `[' In', ' nom', 'ine', ' sanct', 'e', ' et', ' in', 'di', 'vid', 'ue']` | `[nomine sancte et _]`, `[In _ sancte et individue]`... | ~0.95 | **High flexibility.** Captures whole-word and sub-word variations. |
+| **(LNO-gram + Subword)** | `In dei nomine sancte et` | `[' In', ' dei', ' nom', 'ine', ' sanct', 'e', ' et']` | `[dei nomine sancte et _]`... | ~0.90 | **Robust.** Effectively matches even with novel words or spellings by comparing their constituent parts. |
 
 *Where `n` is the window size, `k` is the number of skips, and `r` is the number of removed tokens. Match scores are illustrative.*
 
@@ -146,6 +146,75 @@ FLAME generates up to four types of output files in the directory where it is ru
 </p>
 
 ---
+## Recipes
+### Find long, near-verbatim text reuse
+To find long, exact or near-exact copies of text. This is ideal for checking for direct plagiarism or verbatim text reuse with only minor changes.
+
+```Pyton
+DEFAULT_PARAMS = {
+    'input_path': '',
+    'input_path2': '',
+    'file_suffix': '.txt',
+    'keep_texts': 100000,
+    'ngram': 15,                      # Look for long sequences
+    'n_out': 1,                       # Allow only one token to be different
+    'min_text_length': 150,
+    'similarity_threshold': 0.85,     # Set a very high bar for similarity
+    'auto_threshold_method': 'otsu',
+    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyz",
+    'char_norm_strategy': 'normalize',
+    'char_norm_min_freq': 2,
+    'vocab_size': 8000,               # Use a large vocab to treat words as unique units
+    'vocab_min_word_freq': 3,
+    'vocab_coverage': 0.85,
+}
+```
+### Find rephrased or restructured text.
+This uses a medium-sized ngram window but allows for a moderate number of tokens to be different. It's less strict than the plagiarism detector and can see through changes in vocabulary and sentence structure.
+
+```Pyton
+DEFAULT_PARAMS = {
+    'input_path': '',
+    'input_path2': '',
+    'file_suffix': '.txt',
+    'keep_texts': 100000,
+    'ngram': 10,                      # Look for phrase-level patterns
+    'n_out': 3,                       # Allow several words to be substituted or changed
+    'min_text_length': 150,
+    'similarity_threshold': 0.60,     # A medium threshold to catch non-exact matches
+    'auto_threshold_method': 'otsu',
+    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyz",
+    'char_norm_strategy': 'normalize',
+    'char_norm_min_freq': 2,
+    'vocab_size': 'auto',             # 'auto' is good for handling different vocabulary
+    'vocab_min_word_freq': 3,
+    'vocab_coverage': 0.85,
+}
+```
+```
+### Find formulaic languages / arengas
+This is the balanced approach. It allows for significant variation (n_out) within a moderately sized window (ngram).
+
+```Pyton
+DEFAULT_PARAMS = {
+    'input_path': '',
+    'input_path2': '',
+    'file_suffix': '.txt',
+    'keep_texts': 100000,
+    'ngram': 8,                       # A balanced window size
+    'n_out': 3,                       # High tolerance for word substitution
+    'min_text_length': 150,
+    'similarity_threshold': 'auto',   # Let the algorithm find the natural threshold
+    'auto_threshold_method': 'otsu',
+    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyz",
+    'char_norm_strategy': 'normalize',
+    'char_norm_min_freq': 2,
+    'vocab_size': 'auto',             # 'auto' is ideal for historical spelling variations
+    'vocab_min_word_freq': 3,
+    'vocab_coverage': 0.85,
+}
+```
+
 
 ## Acknowledgements
 
