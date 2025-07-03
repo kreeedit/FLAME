@@ -252,11 +252,11 @@ class AdaptiveAlphabet(CharacterMapper):
         print("--- Character Normalization Complete ---\n")
 
 DEFAULT_PARAMS = {
-    'input_path': '/media/tamask/DATA1/in_nomine_charters',
+    'input_path': None,
     'input_path2': None,
     'file_suffix': '.txt',
     'keep_texts': 100000,
-    'ngram': 6,
+    'ngram': 5,
     'n_out': 1,
     'min_text_length': 150,
     'similarity_threshold': 'auto',
