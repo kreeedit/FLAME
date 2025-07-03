@@ -6,5 +6,5 @@ python-Levenshtein
 scikit-image
 scikit-learn
 scipy
-sentencepiece
 tqdm
+tokenizers
