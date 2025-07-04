@@ -222,7 +222,27 @@ The character normalization components are inspired by and build upon the princi
 ![pylelemmatize](https://github.com/anguelos/pylelemmatize) library. Anguelos's efficient character mapping was a valuable reference for this project.
 
 ---
+## Cite
+### APA Style
+Kovács, T. (2025). *FLAME: Formulaic Language Analysis in Medieval Expressions* (Version 1.0.0) [Computer software]. GitHub. https://github.com/kreeedit/FLAME
 
+
+### BibTex
+
+
+```BibTex
+@software{Kovacs_FLAME_2025,
+  author = {Kovács, Tamás},
+  title = {{FLAME: Formulaic Language Analysis in Medieval Expressions}},
+  version = {1.0.0},
+  publisher = {Zenodo},
+  year = {2025},
+  doi = {10.5281/zenodo.15805449},
+  url = {https://github.com/kreeedit/FLAME}
+}
+```
+
+---
 ## License
 
 This project is licensed under the **Apache 2.0 License**.
