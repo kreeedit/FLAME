@@ -16,9 +16,15 @@ class FlameGUI(tk.Tk):
         """Initializes the main application window and its components."""
         super().__init__()
         self.title("FLAME - Formulaic Language Analysis in Medieval Expressions")
-        self.geometry("900x800")
+        self.geometry("900x850") # Növeltem az ablak magasságát az új vezérlők miatt
 
-        self.params = {key: tk.StringVar(value=str(val)) for key, val in DEFAULT_PARAMS.items()}
+        self.params = {}
+        for key, val in DEFAULT_PARAMS.items():
+            if isinstance(val, bool):
+                self.params[key] = tk.BooleanVar(value=val)
+            else:
+                self.params[key] = tk.StringVar(value=str(val))
+
         self.create_widgets()
 
         self.log_queue = queue.Queue()
@@ -53,6 +59,26 @@ class FlameGUI(tk.Tk):
         self.create_param_entry(vocab_params_frame, "vocab_min_word_freq", "Vocab Min. Word Freq.:", 0, 2)
         self.create_param_entry(vocab_params_frame, "vocab_coverage", "Vocab Coverage %:", 0, 4)
 
+        reports_frame = ttk.LabelFrame(params_frame, text="Report & Output Settings", padding="5")
+        reports_frame.grid(row=4, column=0, columnspan=4, sticky=tk.EW, pady=5)
+
+        self.chk_no_reports = ttk.Checkbutton(reports_frame, text="Disable All Reports", variable=self.params['no_reports'], command=self.toggle_report_checkboxes)
+        self.chk_no_reports.grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+
+        self.chk_html = ttk.Checkbutton(reports_frame, text="Generate Comparison HTML", variable=self.params['gen_comparison_html'])
+        self.chk_html.grid(row=1, column=0, sticky=tk.W, padx=20, pady=2)
+
+        self.chk_summary = ttk.Checkbutton(reports_frame, text="Generate Summary TSV", variable=self.params['gen_summary_tsv'])
+        self.chk_summary.grid(row=1, column=1, sticky=tk.W, padx=5, pady=2)
+
+        self.chk_linguistic = ttk.Checkbutton(reports_frame, text="Generate Linguistic TSV", variable=self.params['gen_linguistic_tsv'])
+        self.chk_linguistic.grid(row=2, column=0, sticky=tk.W, padx=20, pady=2)
+
+        self.chk_heatmap = ttk.Checkbutton(reports_frame, text="Generate Heatmap HTML", variable=self.params['gen_heatmap'])
+        self.chk_heatmap.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
+
+        self.toggle_report_checkboxes() # Kezdeti állapot beállítása
+
         self.run_button = ttk.Button(main_frame, text="Run Analysis", command=self.start_analysis_thread)
         self.run_button.pack(pady=10)
 
@@ -84,6 +110,16 @@ class FlameGUI(tk.Tk):
         self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=15, bg="black", fg="white")
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self.log_text.configure(state='disabled')
+
+    def toggle_report_checkboxes(self):
+        """Disables individual report checkboxes if 'Disable All' is checked."""
+        is_disabled = self.params['no_reports'].get()
+        new_state = tk.DISABLED if is_disabled else tk.NORMAL
+
+        self.chk_html.config(state=new_state)
+        self.chk_summary.config(state=new_state)
+        self.chk_linguistic.config(state=new_state)
+        self.chk_heatmap.config(state=new_state)
 
     def create_path_entry(self, parent, param_name, label_text, row):
         """Helper function to create a labeled entry field for a directory path with a 'Browse' button."""
@@ -135,10 +171,12 @@ class FlameGUI(tk.Tk):
             args_for_flame = {}
             for key, var in self.params.items():
                 val = var.get()
-                if key in ['keep_texts', 'ngram', 'n_out', 'min_text_length',
-                           'char_norm_min_freq', 'vocab_min_word_freq']:
+                if isinstance(var, tk.BooleanVar):
+                    args_for_flame[key] = val
+                elif key in ['keep_texts', 'ngram', 'n_out', 'min_text_length',
+                             'char_norm_min_freq', 'vocab_min_word_freq']:
                     args_for_flame[key] = int(val)
-                elif key in ['similarity_threshold', 'vocab_coverage'] and val.lower() != 'auto':
+                elif key in ['similarity_threshold', 'vocab_coverage'] and str(val).lower() != 'auto':
                     args_for_flame[key] = float(val)
                 else:
                     args_for_flame[key] = val
@@ -158,19 +196,38 @@ class FlameGUI(tk.Tk):
             if analyzer.dist_mat is None:
                 raise RuntimeError("Execution halted because the similarity matrix could not be computed.")
 
-            if str(analyzer.args.similarity_threshold).lower() == 'auto':
-                final_threshold = analyzer._determine_auto_threshold(method=analyzer.args.auto_threshold_method)
+            if analyzer.args.no_reports:
+                print("\n--- Report generation skipped as per GUI setting. ---")
             else:
-                final_threshold = float(analyzer.args.similarity_threshold)
+                print("\n--- Generating Reports ---")
 
-            if analyzer.dist_mat.shape[0] < 2000 and analyzer.dist_mat.shape[1] < 2000:
-                SimilarityVisualizer.plot_similarity_heatmap(analyzer)
-            else:
-                print(f"Skipping heatmap generation for large matrix ({analyzer.dist_mat.shape[0]}x{analyzer.dist_mat.shape[1]}).")
+                if str(analyzer.args.similarity_threshold).lower() == 'auto':
+                    final_threshold = analyzer._determine_auto_threshold(method=analyzer.args.auto_threshold_method)
+                else:
+                    final_threshold = float(analyzer.args.similarity_threshold)
 
-            SimilarityVisualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
-            SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
-            SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                if analyzer.args.gen_heatmap:
+                    if analyzer.dist_mat.shape[0] < 2000 and analyzer.dist_mat.shape[1] < 2000:
+                        SimilarityVisualizer.plot_similarity_heatmap(analyzer)
+                    else:
+                        print(f"Skipping heatmap generation for large matrix ({analyzer.dist_mat.shape[0]}x{analyzer.dist_mat.shape[1]}).")
+                else:
+                    print("Skipping heatmap generation as per GUI setting.")
+
+                if analyzer.args.gen_comparison_html:
+                    SimilarityVisualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
+                else:
+                    print("Skipping interactive HTML generation as per GUI setting.")
+
+                if analyzer.args.gen_summary_tsv:
+                    SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                else:
+                    print("Skipping summary TSV generation as per GUI setting.")
+
+                if analyzer.args.gen_linguistic_tsv:
+                    SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                else:
+                    print("Skipping linguistic TSV generation as per GUI setting.")
 
             print("\n--- ANALYSIS COMPLETE ---")
             analysis_successful = True
@@ -187,14 +244,17 @@ class FlameGUI(tk.Tk):
             self.after(0, final_gui_update)
 
     def update_results_buttons(self):
-        """Enables result buttons if their corresponding files exist."""
-        if os.path.exists('text_comparisons_01.html'):
+        """Enables result buttons if their corresponding files were generated."""
+        if self.params['no_reports'].get():
+            return # Ha minden riport ki volt kapcsolva, ne csinálj semmit
+
+        if self.params['gen_comparison_html'].get() and os.path.exists('text_comparisons_01.html'):
             self.html_button.config(state=tk.NORMAL)
-        if os.path.exists('similarity_heatmap.html'):
+        if self.params['gen_heatmap'].get() and os.path.exists('similarity_heatmap.html'):
             self.heatmap_button.config(state=tk.NORMAL)
-        if os.path.exists('similarity_summary.tsv'):
+        if self.params['gen_summary_tsv'].get() and os.path.exists('similarity_summary.tsv'):
             self.summary_button.config(state=tk.NORMAL)
-        if os.path.exists('linguistic_variations.tsv'):
+        if self.params['gen_linguistic_tsv'].get() and os.path.exists('linguistic_variations.tsv'):
             self.linguistic_button.config(state=tk.NORMAL)
 
     def write(self, text):

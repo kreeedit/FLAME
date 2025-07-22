@@ -255,8 +255,8 @@ DEFAULT_PARAMS = {
     'input_path': None,
     'input_path2': None,
     'file_suffix': '.txt',
-    'keep_texts': 100000,
-    'ngram': 5,
+    'keep_texts': 3000,
+    'ngram': 6,
     'n_out': 1,
     'min_text_length': 150,
     'similarity_threshold': 'auto',
@@ -267,6 +267,11 @@ DEFAULT_PARAMS = {
     'vocab_size': 'auto',
     'vocab_min_word_freq': 3,
     'vocab_coverage': 0.85,
+    'no_reports': False,
+    'gen_comparison_html': True,
+    'gen_summary_tsv': True,
+    'gen_linguistic_tsv': True,
+    'gen_heatmap': True,
 }
 
 class Flame:
@@ -983,23 +988,38 @@ def main():
                 return
 
             analyzer.compute_similarity_matrix()
-            if analyzer.dist_mat is None:
-                print("Execution halted because the similarity matrix could not be computed.")
-                return
-
-            if str(analyzer.args.similarity_threshold).lower() == 'auto':
-                final_threshold = analyzer._determine_auto_threshold(method=analyzer.args.auto_threshold_method)
+            if analyzer.args.no_reports:
+                print("\n--- Report generation skipped due to --no_reports flag. ---")
             else:
-                final_threshold = float(analyzer.args.similarity_threshold)
+                print("\n--- Generating Reports ---")
 
-            if analyzer.dist_mat.shape[0] < 2000 and analyzer.dist_mat.shape[1] < 2000:
-                SimilarityVisualizer.plot_similarity_heatmap(analyzer)
-            else:
-                print(f"Skipping heatmap generation for large matrix ({analyzer.dist_mat.shape[0]}x{analyzer.dist_mat.shape[1]}).")
+                if str(analyzer.args.similarity_threshold).lower() == 'auto':
+                    final_threshold = analyzer._determine_auto_threshold(method=analyzer.args.auto_threshold_method)
+                else:
+                    final_threshold = float(analyzer.args.similarity_threshold)
 
-            SimilarityVisualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
-            SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
-            SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                if analyzer.args.gen_heatmap:
+                    if analyzer.dist_mat.shape[0] < 2000 and analyzer.dist_mat.shape[1] < 2000:
+                        SimilarityVisualizer.plot_similarity_heatmap(analyzer)
+                    else:
+                        print(f"Skipping heatmap generation for large matrix ({analyzer.dist_mat.shape[0]}x{analyzer.dist_mat.shape[1]}).")
+                else:
+                    print("Skipping heatmap generation as per configuration.")
+
+                if analyzer.args.gen_comparison_html:
+                    SimilarityVisualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
+                else:
+                    print("Skipping interactive HTML generation as per configuration.")
+
+                if analyzer.args.gen_summary_tsv:
+                    SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                else:
+                    print("Skipping summary TSV generation as per configuration.")
+
+                if analyzer.args.gen_linguistic_tsv:
+                    SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                else:
+                    print("Skipping linguistic TSV generation as per configuration.")
 
     except Exception as e:
         print(f"\nAn error occurred: {e}")
