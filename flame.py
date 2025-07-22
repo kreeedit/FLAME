@@ -5,7 +5,7 @@ import re
 import unicodedata
 import fargv
 import tqdm
-import Levenshtein
+from rapidfuzz import fuzz
 from itertools import combinations
 from difflib import SequenceMatcher
 from collections import defaultdict, Counter
@@ -568,7 +568,7 @@ class SimilarityVisualizer:
         if not str1 and not str2:
             return "", ""
         if (num_words1 <= 3) and (num_words2 <= 3) and (num_words1 + num_words2 > 0) :
-            ratio = Levenshtein.ratio(str1.lower(), str2.lower())
+            ratio = fuzz.ratio(str1.lower(), str2.lower()) / 100.0
             if ratio >= similarity_threshold:
                 html1 = f'<span class="bridge-word-similar-static">{str1}</span>'
                 html2 = f'<span class="bridge-word-similar-static">{str2}</span>'
