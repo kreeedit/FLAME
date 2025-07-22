@@ -5,6 +5,7 @@ import re
 import unicodedata
 import fargv
 import tqdm
+import Levenshtein
 from rapidfuzz import fuzz
 from itertools import combinations
 from difflib import SequenceMatcher
@@ -261,7 +262,7 @@ DEFAULT_PARAMS = {
     'min_text_length': 150,
     'similarity_threshold': 'auto',
     'auto_threshold_method': 'otsu',
-    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyz", #for greek use e.g. αβγδεζηικλμνξοπρστυφχψω 
+    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyz", #for greek use e.g. αβγδεζηικλμνξοπρστυφχψω
     'char_norm_strategy': 'normalize',
     'char_norm_min_freq': 1,
     'vocab_size': 'auto',
