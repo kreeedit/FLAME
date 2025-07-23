@@ -253,7 +253,7 @@ class AdaptiveAlphabet(CharacterMapper):
         print("--- Character Normalization Complete ---\n")
 
 DEFAULT_PARAMS = {
-    'input_path': None,
+    'input_path': '/home/tamask/github/FLAME/languages_subset',
     'input_path2': None,
     'file_suffix': '.txt',
     'keep_texts': 3000,
@@ -559,6 +559,15 @@ class SimilarityVisualizer:
     detokenizer = TreebankWordDetokenizer()
 
     @staticmethod
+    def _extract_year_from_filename(filename: str) -> int:
+        """Extracts a 4-digit year from a filename string using regex."""
+        match = re.search(r'(?<!\d)(1\d{3}|2\d{3})(?!\d)', filename)
+        if match:
+            return int(match.group(1))
+        # Return a very large number if no year is found to place it last in sorting
+        return 9999
+
+    @staticmethod
     def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], is_bridge: bool, similarity_threshold: float = 0.65) -> Tuple[str, str]:
         words1 = [token for token in gap1_tokens if token.isalnum()]
         words2 = [token for token in gap2_tokens if token.isalnum()]
@@ -590,12 +599,15 @@ class SimilarityVisualizer:
         analysis_tokens2 = [t.lower() for t in text2_original_tokens if t.isalnum()]
         map_analysis_to_original1 = [i for i, token in enumerate(text1_original_tokens) if token.isalnum()]
         map_analysis_to_original2 = [i for i, token in enumerate(text2_original_tokens) if token.isalnum()]
+
         if not analysis_tokens1 or not analysis_tokens2:
             return SimilarityVisualizer.detokenizer.detokenize(text1_original_tokens), \
                    SimilarityVisualizer.detokenizer.detokenize(text2_original_tokens)
+
         matcher = SequenceMatcher(None, analysis_tokens1, analysis_tokens2, autojunk=False)
         raw_matching_blocks = matcher.get_matching_blocks()
         highlighted_html_text1, highlighted_html_text2 = [], []
+
         bridge_word_sections = []
         for idx in range(len(raw_matching_blocks) - 1):
             curr, next_ = raw_matching_blocks[idx], raw_matching_blocks[idx+1]
@@ -608,6 +620,7 @@ class SimilarityVisualizer:
                 g2s_orig = map_analysis_to_original2[gap2_start_analysis]
                 g2e_orig = map_analysis_to_original2[gap2_end_analysis - 1] + 1
                 bridge_word_sections.append({'t1i': (g1s_orig, g1e_orig), 't2i': (g2s_orig, g2e_orig)})
+
         pos1, pos2, m_id = 0, 0, 0
         for a_analysis, b_analysis, size in raw_matching_blocks:
             if size == 0: continue
@@ -854,9 +867,27 @@ document.addEventListener("DOMContentLoaded", function() {
         for pair in tqdm.tqdm(similar_pairs, desc="Generating HTML pairs"):
             i, j, score = pair
             unique_pair_id = f"{i}-{j}"
-            h1, h2 = SimilarityVisualizer.highlight_similarities(display_token_corpus1[i], display_token_corpus2[j], unique_pair_id)
-            f1 = analyzer.file_paths[i].name
-            f2 = analyzer.file_paths2[j].name if analyzer.is_inter_comparison else analyzer.file_paths[j].name
+
+            path1 = analyzer.file_paths[i]
+            tokens1 = display_token_corpus1[i]
+
+            path2 = analyzer.file_paths2[j] if analyzer.is_inter_comparison else analyzer.file_paths[j]
+            tokens2 = display_token_corpus2[j]
+
+            # 2. Évszámok kinyerése a segédfüggvénnyel
+            year1 = SimilarityVisualizer._extract_year_from_filename(path1.name)
+            year2 = SimilarityVisualizer._extract_year_from_filename(path2.name)
+
+            # 3. Kronologikus ellenőrzés és csere, ha szükséges
+            # Ha az első dokumentum később keletkezett, mint a második, cseréljük meg őket
+            if year1 > year2:
+                path1, path2 = path2, path1
+                tokens1, tokens2 = tokens2, tokens1
+
+            # 4. A (már rendezett) adatok használata a HTML generálásához
+            h1, h2 = SimilarityVisualizer.highlight_similarities(tokens1, tokens2, unique_pair_id)
+            f1 = path1.name
+            f2 = path2.name
             segment = f'<div class="comparison-block" data-score="{score:.4f}" data-pair-id="{unique_pair_id}">' \
                       f'<h3>Comparison: {f1} &harr; {f2}</h3>' \
                       f'<div class="similarity-score">Cosine Similarity: {score:.4f}</div>' \
