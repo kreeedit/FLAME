@@ -1079,12 +1079,22 @@ def main():
         with tempfile.TemporaryDirectory() as tmpdir:
             print(f"Created temporary directory: {tmpdir}")
             analyzer = Flame(tmp_dir=tmpdir)
+
+            if not analyzer.args.input_path:
+                print("\n\033[91mError: Required argument --input_path is missing.\033[0m") # Red text for error
+                print("You must specify the directory containing your text files.")
+                print("\n\033[92mExample Usage:\033[0m") # Green text for example
+                print(f"  python {__file__} --input_path /path/to/your/corpus")
+                print("\nFor a full list of all available options, run:")
+                print(f"  python {__file__} -h")
+                return
+
             if (analyzer.args.ngram - analyzer.args.n_out) < 1:
                 raise ValueError(f"N-gram size ({analyzer.args.ngram}) minus n-out ({analyzer.args.n_out}) must be at least 1.")
 
             analyzer.load_corpus()
             if not analyzer.corpus:
-                print("Execution halted because no documents were loaded.")
+                print("Execution halted because no documents were loaded. Please check the input path and file suffix, or run the -h to see the options.")
                 return
 
             analyzer.compute_similarity_matrix()
@@ -1107,7 +1117,6 @@ def main():
                     print("Skipping heatmap generation as per configuration.")
 
                 if analyzer.args.gen_comparison_html:
-                    # The HTML report also uses the master threshold as its primary filter.
                     SimilarityVisualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
                 else:
                     print("Skipping interactive HTML generation as per configuration.")
@@ -1121,7 +1130,6 @@ def main():
                     SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
                 else:
                     print("Skipping linguistic TSV generation as per configuration.")
-
 
     except Exception as e:
         print(f"\nAn error occurred: {e}")
