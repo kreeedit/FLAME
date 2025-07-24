@@ -1094,7 +1094,7 @@ def main():
 
             analyzer.load_corpus()
             if not analyzer.corpus:
-                print("Execution halted because no documents were loaded. Please check the input path and file suffix, or run the -h to see the options.")
+                print("Execution halted because no documents were loaded. Please check the input path and file suffix.")
                 return
 
             analyzer.compute_similarity_matrix()
