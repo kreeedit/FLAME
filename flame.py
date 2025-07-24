@@ -5,7 +5,6 @@ import re
 import unicodedata
 import fargv
 import tqdm
-import Levenshtein
 from rapidfuzz import fuzz
 from itertools import combinations
 from difflib import SequenceMatcher
@@ -13,25 +12,45 @@ from collections import defaultdict, Counter
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Union
 import tempfile
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import squareform, pdist
+
 
 import plotly.graph_objects as go
 from scipy.sparse import coo_matrix, save_npz
 from sklearn.metrics.pairwise import cosine_similarity
 from skimage.filters import threshold_otsu
 import nltk
-from nltk.tokenize import RegexpTokenizer, word_tokenize
+from nltk.tokenize import RegexpTokenizer, word_tokenize, sent_tokenize
 from nltk.tokenize.treebank import TreebankWordDetokenizer
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
-def fast_str_to_numpy(s: str, dtype=np.uint16) -> np.ndarray:
-    """Efficiently converts a string to a NumPy array via byte encoding."""
-    if dtype == np.uint16:
-        return np.frombuffer(s.encode('utf-16le'), dtype=dtype)
-    elif dtype == np.uint32:
+def fast_str_to_numpy(s: str, dtype=np.uint32) -> np.ndarray:
+    """Efficiently converts a string to a NumPy array via byte encoding.
+
+    Args:
+        s (str): The input string.
+        dtype (type): The target NumPy data type.
+            - np.uint32 (default): Safely handles all Unicode characters
+              by using the 'utf-32le' encoding.
+            - np.uint16: Faster for pure BMP text
+              outside the Basic Multilingual Plane (U+0000 to U+FFFF), e.g., emojis, by splitting them into surrogate pairs.
+
+    Returns:
+        np.ndarray: A NumPy array of character codes.
+
+    Raises:
+        ValueError: If an unsupported dtype is provided.
+    """
+    if dtype == np.uint32:
+        # This is the safest and recommended method for all Unicode characters.
         return np.frombuffer(s.encode('utf-32le'), dtype=dtype)
+    elif dtype == np.uint16:
+        # This method is only safe for text guaranteed to be within the BMP.
+        return np.frombuffer(s.encode('utf-16le'), dtype=dtype)
     else:
         raise ValueError(f"Unsupported dtype for fast string conversion: {dtype}")
 
@@ -123,6 +142,7 @@ def suggest_vocab_size_optimized(
     return suggested_size_with_base
 
 
+
 class Alphabet(ABC):
     """Abstract Base Class for defining an alphabet handling interface."""
     @property
@@ -173,10 +193,11 @@ class AlphabetBMP(Alphabet):
     def unknown_chr(self): return self.__unknown_chr
 
     def __call__(self, text: str) -> str:
-        return fast_numpy_to_str(self._npint2int[fast_str_to_numpy(text)])
+        return fast_numpy_to_str(self._npint2int[fast_str_to_numpy(text, dtype=np.uint16)])
+
 
     def get_encoding_information_loss(self, text: str) -> float:
-        np_text = fast_str_to_numpy(text)
+        np_text = fast_str_to_numpy(text, dtype=np.uint16)
         mapped_np_text = self._npint2int[np_text]
         return np.mean(np_text != mapped_np_text)
 
@@ -208,8 +229,8 @@ class AdaptiveAlphabet(CharacterMapper):
 
     def analyze_lost_chars(self, text: str) -> defaultdict:
         lost_chars_count = defaultdict(int)
-        np_text = fast_str_to_numpy(text)
-        mapped_np_text = fast_str_to_numpy(self(text))
+        np_text = fast_str_to_numpy(text, dtype=np.uint16)
+        mapped_np_text = fast_str_to_numpy(self(text), dtype=np.uint16)
         if not self.unknown_chr:
             return lost_chars_count
         unknown_chr_ord = ord(self.unknown_chr)
@@ -253,10 +274,10 @@ class AdaptiveAlphabet(CharacterMapper):
         print("--- Character Normalization Complete ---\n")
 
 DEFAULT_PARAMS = {
-    'input_path': '/home/tamask/github/FLAME/languages_subset',
+    'input_path': None,
     'input_path2': None,
     'file_suffix': '.txt',
-    'keep_texts': 3000,
+    'keep_texts': 10000,
     'ngram': 6,
     'n_out': 1,
     'min_text_length': 150,
@@ -266,7 +287,7 @@ DEFAULT_PARAMS = {
     'char_norm_strategy': 'normalize',
     'char_norm_min_freq': 1,
     'vocab_size': 'auto',
-    'vocab_min_word_freq': 3,
+    'vocab_min_word_freq': 5,
     'vocab_coverage': 0.85,
     'no_reports': False,
     'gen_comparison_html': True,
@@ -343,7 +364,7 @@ class Flame:
 
         mufi_char_mappings = {
             'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'ĳ': 'ij', 'ð': 'dh', 'þ': 'th', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬆ': 'st',
-            'ſ': 's', 'ꝇ': 'l', 'ꝑ': 'p', 'v': 'u', 'j': 'i', 'ꝛ': 'r', 'ƿ': 'w', 'ᵹ': 'g', 'ꝺ': 'd', 'ꝼ': 'f'
+            'ſ': 's', 'ꝇ': 'l', 'ꝑ': 'p', 'ꝛ': 'r', 'ƿ': 'w', 'ᵹ': 'g', 'ꝺ': 'd', 'ꝼ': 'f'
         }
         one_to_many_mappings = {k: v for k, v in mufi_char_mappings.items() if len(v) > 1}
         one_to_one_mappings = {k: v for k, v in mufi_char_mappings.items() if len(v) == 1}
@@ -422,6 +443,17 @@ class Flame:
         print("Tokenizing all documents using subword tokenizer...")
         all_tokenized = [self.tokenize(text) for text in tqdm.tqdm(normalized_corpus_full, desc="Tokenizing")]
 
+        if all_tokenized:
+            print("\n--- Example of Subword Tokenization ---")
+            # Show a sample of the first document's text and the tokenized output
+            original_text_sample = ' '.join(normalized_corpus_full[0].split()[:25])
+            tokenized_sample = all_tokenized[0]
+
+            print(f"Original Text (first 25 words): '{original_text_sample}...'\n")
+            print(f"Tokenized Output:")
+            print(tokenized_sample)
+            print("---------------------------------------\n")
+
         self.encoder = self.get_encoder(all_tokenized)
         if not self.encoder:
             print("Warning: Encoder could not be built (empty vocabulary). Aborting.")
@@ -471,27 +503,59 @@ class Flame:
             raise ValueError(f"Unknown auto-threshold method: {method}")
 
     def leave_n_out_grams(self, tokens: List[str]) -> np.ndarray:
+        """
+        Generates features for a document using a fast, vectorized NumPy approach.
+        """
         MOD = 2**61 - 1
         int_tokens = np.array(self.tokens_to_int(tokens), dtype=np.int64)
-        if int_tokens.size == 0: return np.array([])
+
         seq_len = len(int_tokens)
         elements_to_keep = self.args.ngram - self.args.n_out
-        if elements_to_keep < 1 or seq_len < self.args.ngram: return np.array([])
-        num_ngrams = seq_len - self.args.ngram + 1
-        if num_ngrams <= 0: return np.array([])
-        sub_ngrams_matrix = np.array([int_tokens[i:i + num_ngrams] for i in range(self.args.ngram)])
-        keep_indices_combinations = list(combinations(range(self.args.ngram), elements_to_keep))
-        lnout_grams_list = []
+
+        if elements_to_keep < 1 or seq_len < self.args.ngram:
+            return np.array([], dtype=np.int64)
+
         vocab_size = len(self.encoder)
-        if vocab_size == 0: return np.array([])
-        for combo_indices in keep_indices_combinations:
-            combined_int_values = np.zeros(num_ngrams, dtype=np.int64)
-            for i, original_idx in enumerate(combo_indices):
-                power_val = pow(vocab_size, i, MOD)
-                current_term = (sub_ngrams_matrix[original_idx, :] * power_val) % MOD
-                combined_int_values = (combined_int_values + current_term) % MOD
-            lnout_grams_list.append(combined_int_values)
-        return np.concatenate(lnout_grams_list) if lnout_grams_list else np.array([])
+        if vocab_size == 0:
+            return np.array([], dtype=np.int64)
+
+        # Create a matrix where each COLUMN is an n-gram of BPE tokens.
+        # We create a matrix that represents all of them at once.
+        # Example: if BPE tokens=[A,B,C,D] and ngram=3, the matrix will be:
+        # [[A, B],   <- All 1st tokens from each n-gram
+        #  [B, C],   <- All 2nd tokens from each n-gram
+        #  [C, D]]   <- All 3rd tokens from each n-gram
+        num_ngrams = seq_len - self.args.ngram + 1
+        ngram_matrix = np.array([
+            int_tokens[i : i + num_ngrams] for i in range(self.args.ngram)
+        ], dtype=np.int64)
+
+        # Get combinations of ROW indices to select which tokens to keep.
+        # e.g., for ngram=4, n_out=1, one combination is (0, 2, 3). This means
+        # we will create a feature from the 1st, 3rd, and 4th token of every n-gram.
+        indices_to_keep_combinations = list(combinations(range(self.args.ngram), elements_to_keep))
+
+        all_feature_hashes = []
+
+        # For each combination of token positions...
+        for combo_indices in indices_to_keep_combinations:
+
+            # ...select the corresponding rows from our n-gram matrix.
+            sub_gram_matrix = ngram_matrix[list(combo_indices), :]
+
+            # Perform a vectorized polynomial rolling hash on the sub-gram matrix.
+            # This calculates the hash for every single sub-gram (i.e., every column)
+            num_sub_gram_tokens = len(combo_indices)
+            powers = np.power(vocab_size, np.arange(num_sub_gram_tokens), dtype=object) % MOD
+
+            # Element-wise multiplication and sum over the columns (axis=0)
+            # This is equivalent to: hash = sum(token_id * vocab_size^pos) for each column
+            hashed_values = np.mod(np.dot(powers, sub_gram_matrix), MOD)
+
+            all_feature_hashes.append(hashed_values)
+
+        # Concatenate the hashes from all combination types into a single flat array.
+        return np.concatenate(all_feature_hashes) if all_feature_hashes else np.array([], dtype=np.int64)
 
     def compute_similarity_matrix(self):
         if not self.tokenized_corpus:
@@ -568,7 +632,7 @@ class SimilarityVisualizer:
         return 9999
 
     @staticmethod
-    def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], is_bridge: bool, similarity_threshold: float = 0.65) -> Tuple[str, str]:
+    def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], is_bridge: bool, similarity_threshold: float = 0.75) -> Tuple[str, str]:
         words1 = [token for token in gap1_tokens if token.isalnum()]
         words2 = [token for token in gap2_tokens if token.isalnum()]
         num_words1 = len(words1)
@@ -577,7 +641,7 @@ class SimilarityVisualizer:
         str2 = SimilarityVisualizer.detokenizer.detokenize(gap2_tokens)
         if not str1 and not str2:
             return "", ""
-        if (num_words1 <= 3) and (num_words2 <= 3) and (num_words1 + num_words2 > 0) :
+        if (num_words1 <= 5) and (num_words2 <= 5) and (num_words1 + num_words2 > 0) :
             ratio = fuzz.ratio(str1.lower(), str2.lower()) / 100.0
             if ratio >= similarity_threshold:
                 html1 = f'<span class="bridge-word-similar-static">{str1}</span>'
@@ -588,13 +652,13 @@ class SimilarityVisualizer:
         else:
             html1 = str1
             html2 = str2
-        if (num_words1 <= 3) and (num_words2 <= 3) and (num_words1 + num_words2 > 0) :
+        if (num_words1 <= 5) and (num_words2 <= 5) and (num_words1 + num_words2 > 0) :
             html1 = f'<span class="bridge-words">{html1}</span>' if html1 else ""
             html2 = f'<span class="bridge-words">{html2}</span>' if html2 else ""
         return html1, html2
 
     @staticmethod
-    def highlight_similarities(text1_original_tokens: List[str], text2_original_tokens: List[str], pair_id: int) -> Tuple[str, str]:
+    def highlight_similarities(text1_original_tokens: List[str], text2_original_tokens: List[str], unique_pair_id: str) -> Tuple[str, str]:
         analysis_tokens1 = [t.lower() for t in text1_original_tokens if t.isalnum()]
         analysis_tokens2 = [t.lower() for t in text2_original_tokens if t.isalnum()]
         map_analysis_to_original1 = [i for i, token in enumerate(text1_original_tokens) if token.isalnum()]
@@ -635,24 +699,29 @@ class SimilarityVisualizer:
                 gap1_html, gap2_html = SimilarityVisualizer._render_gap_html(gap1_tokens, gap2_tokens, is_b)
                 if gap1_html: highlighted_html_text1.append(gap1_html)
                 if gap2_html: highlighted_html_text2.append(gap2_html)
+
             m_txt1_raw = SimilarityVisualizer.detokenizer.detokenize(text1_original_tokens[a_start_orig:a_end_orig])
             m_txt1_processed = re.sub(r'([^\w\s])', r'<span class="punct-in-match">\1</span>', m_txt1_raw)
-            m_txt1_html = f'<span class="highlight clickable" data-match-id="{m_id}" data-pair-id="{pair_id}">{m_txt1_processed}</span>'
+            m_txt1_html = f'<span class="highlight clickable" data-match-id="{m_id}" data-pair-id="{unique_pair_id}">{m_txt1_processed}</span>'
             highlighted_html_text1.append(m_txt1_html)
+
             m_txt2_raw = SimilarityVisualizer.detokenizer.detokenize(text2_original_tokens[b_start_orig:b_end_orig])
             m_txt2_processed = re.sub(r'([^\w\s])', r'<span class="punct-in-match">\1</span>', m_txt2_raw)
-            m_txt2_html = f'<span class="match-text" data-match-id="{m_id}" data-pair-id="{pair_id}">{m_txt2_processed}</span>'
+            m_txt2_html = f'<span class="match-text" data-match-id="{m_id}" data-pair-id="{unique_pair_id}">{m_txt2_processed}</span>'
             highlighted_html_text2.append(m_txt2_html)
+
             m_id += 1
             pos1, pos2 = a_end_orig, b_end_orig
+
         if pos1 < len(text1_original_tokens):
             highlighted_html_text1.append(SimilarityVisualizer.detokenizer.detokenize(text1_original_tokens[pos1:]))
         if pos2 < len(text2_original_tokens):
             highlighted_html_text2.append(SimilarityVisualizer.detokenizer.detokenize(text2_original_tokens[pos2:]))
+
         return " ".join(filter(None, highlighted_html_text1)), " ".join(filter(None, highlighted_html_text2))
 
     @staticmethod
-    def generate_comparison_html(analyzer, similarity_threshold: float, max_file_size=20 * 1024 * 1024, interactive_range_width: float = 0.3):
+    def generate_comparison_html(analyzer, similarity_threshold: float, max_file_size=20 * 1024 * 1024):
         if analyzer.dist_mat is None or not analyzer.corpus:
             print("ERROR: Distance matrix or corpus not found. Cannot generate HTML report.")
             return
@@ -842,7 +911,7 @@ document.addEventListener("DOMContentLoaded", function() {
 </script>
 </body>
 </html>"""
-        min_display_threshold = max(0.0, similarity_threshold - interactive_range_width)
+        min_display_threshold = similarity_threshold
         print(f"INFO: HTML report will include pairs with similarity >= {min_display_threshold:.4f}")
         print(f"INFO: The default view will be filtered to >= {similarity_threshold:.4f}")
         html_with_thresholds = html_template_start.replace(
@@ -874,17 +943,16 @@ document.addEventListener("DOMContentLoaded", function() {
             path2 = analyzer.file_paths2[j] if analyzer.is_inter_comparison else analyzer.file_paths[j]
             tokens2 = display_token_corpus2[j]
 
-            # 2. Évszámok kinyerése a segédfüggvénnyel
+            # Extract years
             year1 = SimilarityVisualizer._extract_year_from_filename(path1.name)
             year2 = SimilarityVisualizer._extract_year_from_filename(path2.name)
 
-            # 3. Kronologikus ellenőrzés és csere, ha szükséges
-            # Ha az első dokumentum később keletkezett, mint a második, cseréljük meg őket
+            # If the first document was created later than the second, swap them
             if year1 > year2:
                 path1, path2 = path2, path1
                 tokens1, tokens2 = tokens2, tokens1
 
-            # 4. A (már rendezett) adatok használata a HTML generálásához
+            # Using (already sorted) data to generate HTML
             h1, h2 = SimilarityVisualizer.highlight_similarities(tokens1, tokens2, unique_pair_id)
             f1 = path1.name
             f2 = path2.name
@@ -968,7 +1036,7 @@ document.addEventListener("DOMContentLoaded", function() {
     def generate_linguistic_summary_tsv(analyzer, similarity_threshold: float):
         if analyzer.dist_mat is None or not analyzer.corpus: return
         print(f"Generating linguistic variations summary (TSV) using threshold: {similarity_threshold:.4f}")
-        levenshtein_threshold = 0.75
+        fuzz_threshold = 0.75
         rows = ["File_1\tFile_2\tVariation_Type\tToken_1\tToken_2\n"]
         display_token_corpus1 = [word_tokenize(text) for text in analyzer.corpus]
         display_token_corpus2 = [word_tokenize(text) for text in (analyzer.corpus2 or analyzer.corpus)]
@@ -992,7 +1060,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (1 <= len(gap_tokens1) <= 3) or (1 <= len(gap_tokens2) <= 3):
                     if len(gap_tokens1) == len(gap_tokens2) and len(gap_tokens1) > 0:
                         for t1, t2 in zip(gap_tokens1, gap_tokens2):
-                            variation_type = "Similar Bridge Word" if Levenshtein.ratio(t1, t2) >= levenshtein_threshold else "Different Bridge Word"
+                            score = fuzz.ratio(t1, t2) / 100.0
+                            variation_type = "Similar Bridge Word" if score >= fuzz_threshold else "Different Bridge Word"
                             rows.append(f"{file1_path.name}\t{file2_path.name}\t{variation_type}\t{t1}\t{t2}\n")
                     else:
                         for t1 in gap_tokens1: rows.append(f"{file1_path.name}\t{file2_path.name}\tDifferent Bridge Word\t{t1}\t-\n")
@@ -1001,7 +1070,6 @@ document.addEventListener("DOMContentLoaded", function() {
         with open("linguistic_variations.tsv", "w", encoding='utf-8') as f:
             f.writelines(rows)
         print("Generated linguistic_variations.tsv")
-
 
 def main():
     print("--- Formulaic Language Analysis in Medieval Expressions ---")
@@ -1039,6 +1107,7 @@ def main():
                     print("Skipping heatmap generation as per configuration.")
 
                 if analyzer.args.gen_comparison_html:
+                    # The HTML report also uses the master threshold as its primary filter.
                     SimilarityVisualizer.generate_comparison_html(analyzer, similarity_threshold=final_threshold)
                 else:
                     print("Skipping interactive HTML generation as per configuration.")
@@ -1052,6 +1121,7 @@ def main():
                     SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
                 else:
                     print("Skipping linguistic TSV generation as per configuration.")
+
 
     except Exception as e:
         print(f"\nAn error occurred: {e}")
