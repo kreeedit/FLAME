@@ -106,26 +106,28 @@ python flame.py --help
 
 **Example:**
 ```bash
-python flame.py --input_path ./medieval_texts --ngram 10 --n_out 2 --similarity_threshold auto
+python flame.py --input_path ./path/to/texts --ngram 10 --n_out 1 --similarity_threshold auto
 ```
 
 ### All CLI Arguments
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `input_path` | `./corpus1` | **Required.** Path to the primary corpus directory. |
-| `input_path2`| `''` | Optional path to a second corpus for inter-corpus comparison. |
+| `input_path` | (see code) | **Required.** Path to the primary corpus directory. |
+| `input_path2`| `None` | Optional path to a second corpus for inter-corpus comparison. |
 | `file_suffix`| `.txt` | File extension of texts to process. |
-| `keep_texts` | `20000` | Maximum number of texts to load from each directory. |
+| `keep_texts` | `10000` | Maximum number of texts to load from each directory. |
 | `ngram` | `10` | The size of the n-gram window for feature generation. |
-| `n_out` | `2` | Number of tokens to "leave out" from each n-gram. |
-| `min_text_length` | `50` | Minimum character length for a file to be included. |
+| `n_out` | `1` | Number of tokens to "leave out" from each n-gram. |
+| `min_text_length` | `150` | Minimum character length for a file to be included. |
 | `similarity_threshold` | `'auto'` | Similarity cutoff. Can be a float (e.g., `0.5`) or `'auto'`. |
 | `auto_threshold_method` | `'otsu'` | Method for auto-thresholding: `'otsu'` or `'percentile'`. |
-| `char_norm_alphabet` | (see code) | String of allowed characters for normalization. |
-| `char_norm_strategy` | `'normalize'` | Strategy for unknown characters (e.g., Unicode decomposition). |
-| `char_norm_min_freq` | `2` | Min. frequency for the adaptive normalizer to learn a rule. |
-
+| `char_norm_alphabet` | `abcdef...` | String of allowed characters for normalization. |
+| `char_norm_strategy` | `'normalize'` | Strategy for handling unknown characters (e.g., Unicode decomposition). |
+| `char_norm_min_freq` | `1` | Minimum frequency for the adaptive normalizer to learn a character rule. |
+| `vocab_size` | `'auto'` | Target vocabulary size. Can be an integer or `'auto'` to derive from other settings. |
+| `vocab_min_word_freq`| `3` | Minimum frequency for a word to be included in the vocabulary. |
+| `vocab_coverage`| `0.85` | The desired vocabulary coverage of the corpus, used when `vocab_size` is `'auto'`. |
 ---
 
 ## Outputs
