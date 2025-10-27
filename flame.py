@@ -274,8 +274,8 @@ class AdaptiveAlphabet(CharacterMapper):
         print("--- Character Normalization Complete ---\n")
 
 DEFAULT_PARAMS = {
-    'input_path': None,
-    'input_path2': None,
+    'input_path': '',
+    'input_path2': '',
     'file_suffix': '.txt',
     'keep_texts': 10000,
     'ngram': 6,
@@ -283,7 +283,7 @@ DEFAULT_PARAMS = {
     'min_text_length': 150,
     'similarity_threshold': 'auto',
     'auto_threshold_method': 'otsu',
-    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyz", #for greek use e.g. αβγδεζηικλμνξοπρστυφχψω
+    'char_norm_alphabet': 'abcdefghijklmnopqrstuvwxyz', #for greek use e.g. αβγδεζηικλμνξοπρστυφχψω
     'char_norm_strategy': 'normalize',
     'char_norm_min_freq': 1,
     'vocab_size': 'auto',
@@ -298,9 +298,8 @@ DEFAULT_PARAMS = {
 
 class Flame:
     """Text similarity analysis pipeline."""
-    def __init__(self, params=None, tmp_dir: str = '.'):
-        self.params = params or DEFAULT_PARAMS
-        self.args, _ = fargv.fargv(self.params)
+    def __init__(self, args, tmp_dir: str = '.'):
+        self.args = args  # Store the pre-parsed arguments
         self.is_inter_comparison = bool(self.args.input_path2 and os.path.isdir(self.args.input_path2))
         self.tmp_dir = tmp_dir
 
@@ -522,9 +521,9 @@ class Flame:
         # Create a matrix where each COLUMN is an n-gram of BPE tokens.
         # We create a matrix that represents all of them at once.
         # Example: if BPE tokens=[A,B,C,D] and ngram=3, the matrix will be:
-        # [[A, B],   <- All 1st tokens from each n-gram
-        #  [B, C],   <- All 2nd tokens from each n-gram
-        #  [C, D]]   <- All 3rd tokens from each n-gram
+        # [[A, B],    <- All 1st tokens from each n-gram
+        #  [B, C],    <- All 2nd tokens from each n-gram
+        #  [C, D]]    <- All 3rd tokens from each n-gram
         num_ngrams = seq_len - self.args.ngram + 1
         ngram_matrix = np.array([
             int_tokens[i : i + num_ngrams] for i in range(self.args.ngram)
@@ -1075,10 +1074,14 @@ def main():
     print("--- Formulaic Language Analysis in Medieval Expressions ---")
     print("For command-line options, run with the -h flag.")
 
+    # Parse arguments *once* here, using the defaults defined globally
+    parsed_args, _ = fargv.fargv(DEFAULT_PARAMS)
+
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             print(f"Created temporary directory: {tmpdir}")
-            analyzer = Flame(tmp_dir=tmpdir)
+            # Pass the *parsed_args* object to the Flame constructor
+            analyzer = Flame(args=parsed_args, tmp_dir=tmpdir)
 
             if not analyzer.args.input_path:
                 print("\n\033[91mError: Required argument --input_path is missing.\033[0m") # Red text for error
