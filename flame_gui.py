@@ -6,6 +6,7 @@ import sys
 import os
 import webbrowser
 from flame import Flame, DEFAULT_PARAMS, SimilarityVisualizer
+from argparse import Namespace
 
 
 class FlameGUI(tk.Tk):
@@ -90,15 +91,15 @@ class FlameGUI(tk.Tk):
         results_frame.columnconfigure(3, weight=1)
 
         self.html_button = ttk.Button(results_frame, text="Comparison Report (HTML)", state=tk.DISABLED,
-                                      command=lambda: self.open_result_file('text_comparisons_01.html'))
+                                    command=lambda: self.open_result_file('text_comparisons_01.html'))
         self.html_button.grid(row=0, column=0, padx=5, pady=5, sticky=tk.EW)
 
         self.heatmap_button = ttk.Button(results_frame, text="Heatmap (HTML)", state=tk.DISABLED,
-                                         command=lambda: self.open_result_file('similarity_heatmap.html'))
+                                        command=lambda: self.open_result_file('similarity_heatmap.html'))
         self.heatmap_button.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
 
         self.summary_button = ttk.Button(results_frame, text="Summary (TSV)", state=tk.DISABLED,
-                                         command=lambda: self.open_result_file('similarity_summary.tsv'))
+                                        command=lambda: self.open_result_file('similarity_summary.tsv'))
         self.summary_button.grid(row=0, column=2, padx=5, pady=5, sticky=tk.EW)
 
         self.linguistic_button = ttk.Button(results_frame, text="Variations (TSV)", state=tk.DISABLED,
@@ -174,14 +175,16 @@ class FlameGUI(tk.Tk):
                 if isinstance(var, tk.BooleanVar):
                     args_for_flame[key] = val
                 elif key in ['keep_texts', 'ngram', 'n_out', 'min_text_length',
-                             'char_norm_min_freq', 'vocab_min_word_freq']:
+                            'char_norm_min_freq', 'vocab_min_word_freq']:
                     args_for_flame[key] = int(val)
                 elif key in ['similarity_threshold', 'vocab_coverage'] and str(val).lower() != 'auto':
                     args_for_flame[key] = float(val)
                 else:
                     args_for_flame[key] = val
 
-            analyzer = Flame(params=args_for_flame)
+            args_object = Namespace(**args_for_flame)
+            analyzer = Flame(args=args_object)
+
             sys.stdout = self
             sys.stderr = self
 
