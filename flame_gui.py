@@ -27,10 +27,21 @@ class FlameGUI(tk.Tk):
             else:
                 self.params[key] = tk.StringVar(value=str(val))
 
+        # REACTIVE LOGIC: Trace changes on similarity_threshold to auto-update method dropdown
+        self.params['similarity_threshold'].trace_add("write", self.on_threshold_change)
+
         self.create_widgets()
 
         self.log_queue = queue.Queue()
         self.after(100, self.process_log_queue)
+
+    def on_threshold_change(self, *args):
+        """Automatically switches threshold method based on auto vs numerical input."""
+        val = self.params['similarity_threshold'].get().strip().lower()
+        if val == 'auto':
+            self.params['auto_threshold_method'].set('otsu')
+        else:
+            self.params['auto_threshold_method'].set('percentile')
 
     def create_widgets(self):
         """Creates and arranges all widgets inside tabbed logical containers."""
@@ -67,7 +78,17 @@ class FlameGUI(tk.Tk):
         threshold_frame = ttk.LabelFrame(tab_core, text="Global Threshold Selection", padding="10")
         threshold_frame.pack(fill=tk.X, pady=5)
         self.create_param_entry(threshold_frame, "similarity_threshold", "Similarity Threshold ('auto' or 0-1):", 0, 0)
-        self.create_param_entry(threshold_frame, "auto_threshold_method", "Auto Threshold Method ('otsu'/'percentile'):", 0, 2)
+
+        # DROPDOWN IMPLEMENTATION: Replacing entry with a reactive readonly Combobox
+        ttk.Label(threshold_frame, text="Auto Threshold Method:").grid(row=0, column=2, sticky=tk.W, padx=5, pady=4)
+        method_dropdown = ttk.Combobox(
+            threshold_frame,
+            textvariable=self.params['auto_threshold_method'],
+            values=['otsu', 'percentile'],
+            state='readonly',
+            width=12
+        )
+        method_dropdown.grid(row=0, column=3, sticky=tk.W, padx=5, pady=4)
 
         # ==================== TAB 2: NLP & PHILOLOGY ====================
         char_frame = ttk.LabelFrame(tab_nlp, text="Character Normalization Layers", padding="10")
@@ -84,7 +105,7 @@ class FlameGUI(tk.Tk):
         self.create_param_entry(bpe_frame, "vocab_min_word_freq", "Min. Word Freq for Affixes:", 0, 2)
         self.create_param_entry(bpe_frame, "vocab_coverage", "Target Morphological Coverage (0-1):", 1, 0)
 
-        alignment_frame = ttk.LabelFrame(tab_nlp, text="Philological Variation & Bridge Words Évaulation", padding="10")
+        alignment_frame = ttk.LabelFrame(tab_nlp, text="Philological Variation & Bridge Words Evaluation", padding="10")
         alignment_frame.pack(fill=tk.X, pady=5)
         self.create_param_entry(alignment_frame, "fuzz_threshold", "Bridge Word Fuzzy Sensitivity (0-1):", 0, 0)
         self.create_param_entry(alignment_frame, "max_gap_words", "Max Bridge Word Length Gap:", 0, 2)
@@ -118,7 +139,7 @@ class FlameGUI(tk.Tk):
         self.toggle_report_checkboxes()
 
         # ==================== RUN & LOG ENGINE (BOTTOM) ====================
-        self.run_button = ttk.Button(main_frame, text="Run FLAME Pipeline", command=self.start_analysis_thread, style="Accent.TButton")
+        self.run_button = ttk.Button(main_frame, text="Run FLAME Pipeline", command=self.start_analysis_thread)
         self.run_button.pack(pady=15)
 
         results_frame = ttk.LabelFrame(main_frame, text="Direct Action: Open Analysis Results", padding="10")
@@ -316,7 +337,6 @@ class FlameGUI(tk.Tk):
         self.log_text.configure(state='disabled')
 
 if __name__ == "__main__":
-    # Custom fallback style injections for crisp scannability maps
     app = FlameGUI()
     style = ttk.Style()
     style.theme_use('clam')
