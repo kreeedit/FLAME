@@ -10,18 +10,15 @@ from itertools import combinations
 from difflib import SequenceMatcher
 from collections import defaultdict, Counter
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Optional
 import tempfile
-from scipy.cluster.hierarchy import fcluster, linkage
-from scipy.spatial.distance import squareform, pdist
-
-
-import plotly.graph_objects as go
-from scipy.sparse import coo_matrix, save_npz
+from scipy.sparse import coo_matrix, save_npz, vstack
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfTransformer
+import plotly.graph_objects as go
 from skimage.filters import threshold_otsu
 import nltk
-from nltk.tokenize import RegexpTokenizer, word_tokenize, sent_tokenize
+from nltk.tokenize import word_tokenize
 from nltk.tokenize.treebank import TreebankWordDetokenizer
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
@@ -37,19 +34,14 @@ def fast_str_to_numpy(s: str, dtype=np.uint32) -> np.ndarray:
             - np.uint32 (default): Safely handles all Unicode characters
               by using the 'utf-32le' encoding.
             - np.uint16: Faster for pure BMP text
-              outside the Basic Multilingual Plane (U+0000 to U+FFFF), e.g., emojis, by splitting them into surrogate pairs.
+              outside the Basic Multilingual Plane (U+0000 to U+FFFF).
 
     Returns:
         np.ndarray: A NumPy array of character codes.
-
-    Raises:
-        ValueError: If an unsupported dtype is provided.
     """
     if dtype == np.uint32:
-        # This is the safest and recommended method for all Unicode characters.
         return np.frombuffer(s.encode('utf-32le'), dtype=dtype)
     elif dtype == np.uint16:
-        # This method is only safe for text guaranteed to be within the BMP.
         return np.frombuffer(s.encode('utf-16le'), dtype=dtype)
     else:
         raise ValueError(f"Unsupported dtype for fast string conversion: {dtype}")
@@ -64,15 +56,25 @@ def fast_numpy_to_str(np_arr: np.ndarray) -> str:
         raise ValueError(f"Unsupported dtype for fast NumPy conversion: {np_arr.dtype}")
 
 def suggest_vocab_size_optimized(
-    corpus: list[str],
+    corpus: List[str],
     min_word_freq: int = 3,
     max_affix_len: int = 6,
     coverage_percentile: float = 0.85
 ) -> int:
-    """Proposes the vocabulary size for the tokenizer based on corpus analysis."""
-    print("\n--- Starting Automatic Vocab Size Suggestion (Optimized) ---")
+    """Proposes an optimal vocabulary size for the BPE tokenizer based on corpus analysis.
 
-    print(f"Counting word frequencies...")
+    Args:
+        corpus (List[str]): List of text documents.
+        min_word_freq (int): Minimum frequency for a word to be considered.
+        max_affix_len (int): Maximum length of common prefixes/suffixes to analyze.
+        coverage_percentile (float): Target percentile of affix occurrences to cover.
+
+    Returns:
+        int: Suggested vocabulary size.
+    """
+    print("\n--- Starting Automatic Vocab Size Suggestion (Optimized) ---")
+    print("Counting word frequencies...")
+
     word_counts = Counter()
     tokenizer = re.compile(r'\b\w+\b')
     for doc in tqdm.tqdm(corpus, desc="Tokenizing corpus"):
@@ -82,6 +84,7 @@ def suggest_vocab_size_optimized(
         word: count for word, count in word_counts.items()
         if count >= min_word_freq and len(word) > 1
     }
+
     print(f"Found {len(word_counts)} unique words, keeping {len(frequent_word_counts)} with frequency >= {min_word_freq}.")
 
     if not frequent_word_counts:
@@ -141,8 +144,6 @@ def suggest_vocab_size_optimized(
 
     return suggested_size_with_base
 
-
-
 class Alphabet(ABC):
     """Abstract Base Class for defining an alphabet handling interface."""
     @property
@@ -156,7 +157,6 @@ class Alphabet(ABC):
     @property
     @abstractmethod
     def unknown_chr(self) -> str: pass
-
 
 class AlphabetBMP(Alphabet):
     """Handles character sets within the Unicode Basic Multilingual Plane (BMP)."""
@@ -195,12 +195,10 @@ class AlphabetBMP(Alphabet):
     def __call__(self, text: str) -> str:
         return fast_numpy_to_str(self._npint2int[fast_str_to_numpy(text, dtype=np.uint16)])
 
-
     def get_encoding_information_loss(self, text: str) -> float:
         np_text = fast_str_to_numpy(text, dtype=np.uint16)
         mapped_np_text = self._npint2int[np_text]
         return np.mean(np_text != mapped_np_text)
-
 
 class CharacterMapper(AlphabetBMP):
     """Extends AlphabetBMP to support custom, user-defined character-to-character mappings."""
@@ -220,10 +218,9 @@ class CharacterMapper(AlphabetBMP):
         self.__custom_mapping_dict.update(new_mappings)
         self._chr2chr, self._npint2int = self._create_mappers()
 
-
 class AdaptiveAlphabet(CharacterMapper):
-    """An adaptive normalizer that learns character mappings from a text corpus."""
-    def __init__(self, src_alphabet: str, unknown_chr: str = '', initial_mapping_dict: Dict[str, str] = None):
+    """An adaptive normalizer that learns character mappings from a text corpus dynamically."""
+    def __init__(self, src_alphabet: str, unknown_chr: str = '', initial_mapping_dict: Optional[Dict[str, str]] = None):
         mapping_dict = initial_mapping_dict if initial_mapping_dict is not None else {}
         super().__init__(src_alphabet=src_alphabet, mapping_dict=mapping_dict, unknown_chr=unknown_chr)
 
@@ -283,12 +280,16 @@ DEFAULT_PARAMS = {
     'min_text_length': 150,
     'similarity_threshold': 'auto',
     'auto_threshold_method': 'otsu',
-    'char_norm_alphabet': 'abcdefghijklmnopqrstuvwxyz', #for greek use e.g. αβγδεζηικλμνξοπρστυφχψω
+    'char_norm_alphabet': 'abcdefghijklmnopqrstuvwxyz',
     'char_norm_strategy': 'normalize',
     'char_norm_min_freq': 1,
     'vocab_size': 'auto',
     'vocab_min_word_freq': 5,
     'vocab_coverage': 0.85,
+    'fuzz_threshold': 0.75,
+    'max_gap_words': 5,
+    'auto_tune': False,
+    'auto_tune_sample_size': 30,
     'no_reports': False,
     'gen_comparison_html': True,
     'gen_summary_tsv': True,
@@ -297,9 +298,9 @@ DEFAULT_PARAMS = {
 }
 
 class Flame:
-    """Text similarity analysis pipeline."""
+    """Main pipeline execution for medieval formulaic language alignment."""
     def __init__(self, args, tmp_dir: str = '.'):
-        self.args = args  # Store the pre-parsed arguments
+        self.args = args
         self.is_inter_comparison = bool(self.args.input_path2 and os.path.isdir(self.args.input_path2))
         self.tmp_dir = tmp_dir
 
@@ -344,6 +345,7 @@ class Flame:
         return corpus_data, loaded_paths
 
     def load_corpus(self):
+        """Loads files, runs character level mapping layers, and builds BPE vocabulary model."""
         self.corpus, self.file_paths = self._load_corpus_from_path(self.args.input_path)
         if self.is_inter_comparison:
             print("\n--- Two-directory comparison mode activated ---")
@@ -394,7 +396,6 @@ class Flame:
         normalized_corpus_full = [learner(text) for text in tqdm.tqdm(pre_processed_corpus, desc="Normalizing")]
 
         print("\n--- Training Subword Tokenizer ---")
-
         corpus_file = os.path.join(self.tmp_dir, 'temp_corpus.txt')
         with open(corpus_file, 'w', encoding='utf-8') as f:
             for line in normalized_corpus_full:
@@ -444,13 +445,10 @@ class Flame:
 
         if all_tokenized:
             print("\n--- Example of Subword Tokenization ---")
-            # Show a sample of the first document's text and the tokenized output
             original_text_sample = ' '.join(normalized_corpus_full[0].split()[:25])
             tokenized_sample = all_tokenized[0]
-
             print(f"Original Text (first 25 words): '{original_text_sample}...'\n")
-            print(f"Tokenized Output:")
-            print(tokenized_sample)
+            print(f"Tokenized Output:\n{tokenized_sample}")
             print("---------------------------------------\n")
 
         self.encoder = self.get_encoder(all_tokenized)
@@ -465,8 +463,100 @@ class Flame:
         else:
             self.tokenized_corpus = all_tokenized
 
+    def auto_tune_parameters(self):
+        """Performs unsupervised parameter digging (auto-tuning) by injecting synthetic noise
+        and performing a grid search to optimize the Signal-to-Noise Ratio (SNR) spread.
+        """
+        print("\n--- Starting Unsupervised Parameter Auto-Tuning (Trial Digging) ---")
+        np.random.seed(42)  # Secure structural repeatability across tuning checks
+        sample_size = min(int(self.args.auto_tune_sample_size), len(self.tokenized_corpus))
+        if sample_size < 2:
+            print("Corpus too small to evaluate statistical separation. Skipping tuning.")
+            return
+
+        # Prepare a sample and a perturbed twin corpus to emulate transcription / dialect noise
+        sample_tokens_list = self.tokenized_corpus[:sample_size]
+        perturbed_tokens_list = []
+
+        for tokens in sample_tokens_list:
+            perturbed = []
+            for t in tokens:
+                # 5% probability to simulate subword variation / spelling decay
+                if np.random.rand() < 0.05:
+                    if np.random.rand() < 0.5 and len(perturbed) > 0:
+                        perturbed.pop()  # Simulating character/token dropping
+                    continue
+                perturbed.append(t)
+            perturbed_tokens_list.append(perturbed)
+
+        best_snr = -float('inf')
+        best_ngram = self.args.ngram
+        best_n_out = self.args.n_out
+
+        # Search parameter space grid
+        candidate_grid = [(4, 0), (4, 1), (5, 0), (5, 1), (5, 2), (6, 0), (6, 1), (6, 2), (7, 1), (7, 2)]
+        orig_ngram, orig_n_out = self.args.ngram, self.args.n_out
+
+        print("Evaluating local parameters across structural separation bounds...")
+        for ngram, n_out in candidate_grid:
+            if ngram - n_out < 1: continue
+            self.args.ngram = ngram
+            self.args.n_out = n_out
+
+            orig_features = [self.leave_n_out_grams(t) for t in sample_tokens_list]
+            pert_features = [self.leave_n_out_grams(t) for t in perturbed_tokens_list]
+
+            local_vocab = {}
+            idx = 0
+            for feats in orig_features + pert_features:
+                for f in feats:
+                    if f not in local_vocab:
+                        local_vocab[f] = idx
+                        idx += 1
+
+            if not local_vocab: continue
+
+            def generate_vector(feats):
+                vec = np.zeros(len(local_vocab))
+                if feats.size > 0:
+                    u, c = np.unique(feats, return_counts=True)
+                    for val, count in zip(u, c):
+                        if val in local_vocab:
+                            vec[local_vocab[val]] = count
+                norm = np.linalg.norm(vec)
+                return vec / norm if norm > 0 else vec
+
+            orig_vectors = [generate_vector(f) for f in orig_features]
+            pert_vectors = [generate_vector(f) for f in pert_features]
+
+            # Measure Signal (Similarity between original and matched perturbed target)
+            signals = [np.dot(orig_vectors[i], pert_vectors[i]) for i in range(sample_size)]
+            avg_signal = np.mean(signals)
+
+            # Measure Noise (Cross-similarities with wrong documents)
+            noises = []
+            for i in range(sample_size):
+                for j in range(sample_size):
+                    if i != j:
+                        noises.append(np.dot(orig_vectors[i], pert_vectors[j]))
+            avg_noise = np.mean(noises) if noises else 0.0
+
+            # Compute separation index optimization score
+            snr = avg_signal - avg_noise
+
+            if snr > best_snr and avg_signal > 0.05:
+                best_snr = snr
+                best_ngram = ngram
+                best_n_out = n_out
+
+        self.args.ngram = best_ngram
+        self.args.n_out = best_n_out
+        print(f"--- Auto-Tune Selection Complete ---")
+        print(f"Optimal N-Gram set to: {best_ngram}")
+        print(f"Optimal N-Out (Gaps) set to: {best_n_out}")
+        print(f"Optimized Separation Margin Spread: {best_snr:.4f}\n")
+
     def tokenize(self, text_str: str) -> List[str]:
-        """Tokenizes a string using the trained BPE model from the 'tokenizers' library."""
         if not self.tokenizer_model:
             raise RuntimeError("Tokenizer model is not loaded. Run load_corpus first.")
         return self.tokenizer_model.encode(text_str).tokens
@@ -502,12 +592,9 @@ class Flame:
             raise ValueError(f"Unknown auto-threshold method: {method}")
 
     def leave_n_out_grams(self, tokens: List[str]) -> np.ndarray:
-        """
-        Generates features for a document using a fast, vectorized NumPy approach.
-        """
+        """Vectorized rolling hash fingerprinting matching the leave-n-out specification."""
         MOD = 2**61 - 1
         int_tokens = np.array(self.tokens_to_int(tokens), dtype=np.int64)
-
         seq_len = len(int_tokens)
         elements_to_keep = self.args.ngram - self.args.n_out
 
@@ -518,42 +605,21 @@ class Flame:
         if vocab_size == 0:
             return np.array([], dtype=np.int64)
 
-        # Create a matrix where each COLUMN is an n-gram of BPE tokens.
-        # We create a matrix that represents all of them at once.
-        # Example: if BPE tokens=[A,B,C,D] and ngram=3, the matrix will be:
-        # [[A, B],    <- All 1st tokens from each n-gram
-        #  [B, C],    <- All 2nd tokens from each n-gram
-        #  [C, D]]    <- All 3rd tokens from each n-gram
         num_ngrams = seq_len - self.args.ngram + 1
         ngram_matrix = np.array([
             int_tokens[i : i + num_ngrams] for i in range(self.args.ngram)
         ], dtype=np.int64)
 
-        # Get combinations of ROW indices to select which tokens to keep.
-        # e.g., for ngram=4, n_out=1, one combination is (0, 2, 3). This means
-        # we will create a feature from the 1st, 3rd, and 4th token of every n-gram.
         indices_to_keep_combinations = list(combinations(range(self.args.ngram), elements_to_keep))
-
         all_feature_hashes = []
 
-        # For each combination of token positions...
         for combo_indices in indices_to_keep_combinations:
-
-            # ...select the corresponding rows from our n-gram matrix.
             sub_gram_matrix = ngram_matrix[list(combo_indices), :]
-
-            # Perform a vectorized polynomial rolling hash on the sub-gram matrix.
-            # This calculates the hash for every single sub-gram (i.e., every column)
             num_sub_gram_tokens = len(combo_indices)
             powers = np.power(vocab_size, np.arange(num_sub_gram_tokens), dtype=object) % MOD
-
-            # Element-wise multiplication and sum over the columns (axis=0)
-            # This is equivalent to: hash = sum(token_id * vocab_size^pos) for each column
             hashed_values = np.mod(np.dot(powers, sub_gram_matrix), MOD)
-
             all_feature_hashes.append(hashed_values)
 
-        # Concatenate the hashes from all combination types into a single flat array.
         return np.concatenate(all_feature_hashes) if all_feature_hashes else np.array([], dtype=np.int64)
 
     def compute_similarity_matrix(self):
@@ -607,12 +673,25 @@ class Flame:
         if self.is_inter_comparison:
             matrix1 = create_sparse_matrix(doc_features1, len(self.corpus), feature_to_col_idx)
             matrix2 = create_sparse_matrix(doc_features2, len(self.corpus2), feature_to_col_idx)
-            print("Calculating inter-corpus Cosine similarity (sparse output)...")
-            self.dist_mat = cosine_similarity(matrix1, matrix2, dense_output=False)
+
+            print("Applying TF-IDF transformation...")
+            combined_matrix = vstack([matrix1, matrix2])
+            tfidf = TfidfTransformer().fit(combined_matrix)
+
+            matrix1_tfidf = tfidf.transform(matrix1)
+            matrix2_tfidf = tfidf.transform(matrix2)
+
+            print("Calculating inter-corpus Cosine similarity (sparse TF-IDF output)...")
+            self.dist_mat = cosine_similarity(matrix1_tfidf, matrix2_tfidf, dense_output=False)
         else:
             matrix = create_sparse_matrix(doc_features1, len(self.corpus), feature_to_col_idx)
-            print("Calculating all-pairs Cosine similarity (sparse output)...")
-            self.dist_mat = cosine_similarity(matrix, dense_output=False)
+
+            print("Applying TF-IDF transformation...")
+            tfidf = TfidfTransformer()
+            matrix_tfidf = tfidf.fit_transform(matrix)
+
+            print("Calculating all-pairs Cosine similarity (sparse TF-IDF output)...")
+            self.dist_mat = cosine_similarity(matrix_tfidf, dense_output=False)
 
         print("Similarity matrix computation complete.")
         save_npz(os.path.join(self.tmp_dir, 'dist_mat.npz'), self.dist_mat)
@@ -623,41 +702,41 @@ class SimilarityVisualizer:
 
     @staticmethod
     def _extract_year_from_filename(filename: str) -> int:
-        """Extracts a 4-digit year from a filename string using regex."""
         match = re.search(r'(?<!\d)(1\d{3}|2\d{3})(?!\d)', filename)
         if match:
             return int(match.group(1))
-        # Return a very large number if no year is found to place it last in sorting
         return 9999
 
     @staticmethod
-    def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], is_bridge: bool, similarity_threshold: float = 0.75) -> Tuple[str, str]:
+    def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], is_bridge: bool, max_gap_words: int, similarity_threshold: float) -> Tuple[str, str]:
+        """Renders the gap between matches, storing the raw fuzzy ratio inside data attributes."""
         words1 = [token for token in gap1_tokens if token.isalnum()]
         words2 = [token for token in gap2_tokens if token.isalnum()]
         num_words1 = len(words1)
         num_words2 = len(words2)
         str1 = SimilarityVisualizer.detokenizer.detokenize(gap1_tokens)
         str2 = SimilarityVisualizer.detokenizer.detokenize(gap2_tokens)
+
         if not str1 and not str2:
             return "", ""
-        if (num_words1 <= 5) and (num_words2 <= 5) and (num_words1 + num_words2 > 0) :
+
+        if (num_words1 <= max_gap_words) and (num_words2 <= max_gap_words) and (num_words1 + num_words2 > 0):
+            # Calculate the ratio, but do NOT hardcode the visual class yet
             ratio = fuzz.ratio(str1.lower(), str2.lower()) / 100.0
-            if ratio >= similarity_threshold:
-                html1 = f'<span class="bridge-word-similar-static">{str1}</span>'
-                html2 = f'<span class="bridge-word-similar-static">{str2}</span>'
-            else:
-                html1 = f'<span class="bridge-word-dissimilar">{str1}</span>'
-                html2 = f'<span class="bridge-word-dissimilar">{str2}</span>'
+            html1 = f'<span class="dynamic-bridge-word" data-fuzz="{ratio:.3f}">{str1}</span>'
+            html2 = f'<span class="dynamic-bridge-word" data-fuzz="{ratio:.3f}">{str2}</span>'
         else:
             html1 = str1
             html2 = str2
-        if (num_words1 <= 5) and (num_words2 <= 5) and (num_words1 + num_words2 > 0) :
+
+        if (num_words1 <= max_gap_words) and (num_words2 <= max_gap_words) and (num_words1 + num_words2 > 0):
             html1 = f'<span class="bridge-words">{html1}</span>' if html1 else ""
             html2 = f'<span class="bridge-words">{html2}</span>' if html2 else ""
+
         return html1, html2
 
     @staticmethod
-    def highlight_similarities(text1_original_tokens: List[str], text2_original_tokens: List[str], unique_pair_id: str) -> Tuple[str, str]:
+    def highlight_similarities(text1_original_tokens: List[str], text2_original_tokens: List[str], unique_pair_id: str, max_gap_words: int, fuzz_threshold: float) -> Tuple[str, str]:
         analysis_tokens1 = [t.lower() for t in text1_original_tokens if t.isalnum()]
         analysis_tokens2 = [t.lower() for t in text2_original_tokens if t.isalnum()]
         map_analysis_to_original1 = [i for i, token in enumerate(text1_original_tokens) if token.isalnum()]
@@ -676,8 +755,8 @@ class SimilarityVisualizer:
             curr, next_ = raw_matching_blocks[idx], raw_matching_blocks[idx+1]
             gap1_start_analysis, gap1_end_analysis = curr.a + curr.size, next_.a
             gap2_start_analysis, gap2_end_analysis = curr.b + curr.size, next_.b
-            if (1 <= (gap1_end_analysis - gap1_start_analysis) <= 5) and \
-               (1 <= (gap2_end_analysis - gap2_start_analysis) <= 5):
+            if (1 <= (gap1_end_analysis - gap1_start_analysis) <= max_gap_words) and \
+               (1 <= (gap2_end_analysis - gap2_start_analysis) <= max_gap_words):
                 g1s_orig = map_analysis_to_original1[gap1_start_analysis]
                 g1e_orig = map_analysis_to_original1[gap1_end_analysis - 1] + 1
                 g2s_orig = map_analysis_to_original2[gap2_start_analysis]
@@ -695,7 +774,7 @@ class SimilarityVisualizer:
                 gap1_tokens = text1_original_tokens[pos1:a_start_orig]
                 gap2_tokens = text2_original_tokens[pos2:b_start_orig]
                 is_b = any(b['t1i'] == (pos1, a_start_orig) for b in bridge_word_sections)
-                gap1_html, gap2_html = SimilarityVisualizer._render_gap_html(gap1_tokens, gap2_tokens, is_b)
+                gap1_html, gap2_html = SimilarityVisualizer._render_gap_html(gap1_tokens, gap2_tokens, is_b, max_gap_words, fuzz_threshold)
                 if gap1_html: highlighted_html_text1.append(gap1_html)
                 if gap2_html: highlighted_html_text2.append(gap2_html)
 
@@ -725,53 +804,72 @@ class SimilarityVisualizer:
             print("ERROR: Distance matrix or corpus not found. Cannot generate HTML report.")
             return
 
-        html_template_start = """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Text Similarity Comparison</title><style>
-        body{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;margin:20px;line-height:1.6;background-color:#f8f9fa}
-        .comparison-block{margin-bottom:2em;background-color:#fff;padding:1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6}
-        .comparison-container{display:flex;gap:20px;flex-wrap:wrap}@media(min-width:768px){.comparison-container{flex-wrap:nowrap}}
-        .text-box{flex:1 1 100%;min-width:300px;padding:15px;border:1px solid #ced4da;border-radius:5px;background-color:#fff;height:400px;overflow-y:auto;position:relative}
-        h2{color:#212529;border-bottom:2px solid #e9ecef;padding-bottom:.5em; margin-top: 0;}
-        h3{color:#343a40;margin-top:0}
-        .similarity-score{font-weight:700;color:#0056b3}
-        .file-info{font-size:.9em;color:#6c757d;margin-bottom:.5em;font-weight:700}
-        .highlight{background-color:#fff3b8;border-radius:3px}
-        .highlight.clickable{cursor:pointer;transition:background-color .2s}
-        .highlight.clickable:hover{background-color:#ffe066}
-        .active-highlight{background-color:#ffd700;box-shadow:0 0 0 2px #ffc107}
-        .match-text{border-radius:3px;transition:background-color .3s}
-        .hover-highlight {background-color: #ffe066 !important; box-shadow: 0 0 0 2px #ffc107;}
-        .match-text.active { background-color:#fff3b8; }
-        .bridge-word-similar-static.active { background-color: #fff9e0; border-radius: 3px; padding: 0 2px; }
-        .bridge-words.show-dissimilar .bridge-word-dissimilar { background-color: #ffcdd2; border-radius: 3px; padding: 0 2px; }
-        .bridge-words.highlighted { outline: 1px dotted #e57373; }
-        .bridge-words.highlighted .bridge-word-similar-static { background-color: #fff9e0; border-radius: 3px; padding: 0 2px; }
-        .bridge-words.highlighted .bridge-word-dissimilar { background-color: #ffcdd2; border-radius: 3px; padding: 0 2px; }
-        #controls{margin-bottom:1.5em;background-color:#fff;padding:1em 1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6;}
-        .button-container { display: flex; gap: 10px; margin-top: 1em; }
-        .control-button { background-color:#28a745;color:#fff;padding:0.4em 0.8em;border:none;border-radius:4px;cursor:pointer;font-weight:700; font-size: 0.9em; }
-        .control-button.active { background-color:#dc3545; }
-        .filter-container { margin-top: 1.5em; padding-top: 1em; border-top: 1px solid #e9ecef; }
-        .slider-wrapper { position: relative; height: 30px; }
-        .slider-label { font-weight: 600; color: #495057; margin-bottom: 0.5em; }
-        .slider-values { display: flex; justify-content: space-between; font-family: monospace; font-size: 1.1em; color: #0056b3; margin-bottom: -5px; }
-        .form-control-range { position: absolute; width: 100%; -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none; }
-        .form-control-range:focus { outline: none; }
-        .form-control-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; height: 18px; width: 18px; background: #007bff; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 5px rgba(0,0,0,0.2); pointer-events: auto; cursor: pointer; }
-        .form-control-range::-moz-range-thumb { height: 14px; width: 14px; background: #007bff; border-radius: 50%; border: 2px solid #fff; pointer-events: auto; cursor: pointer; }
-        .slider-track { position: absolute; width: 100%; height: 4px; background-color: #ddd; top: 7px; border-radius: 3px; }
+        html_template_start = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Text Similarity Comparison</title><style>
+        body{{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;margin:20px;line-height:1.6;background-color:#f8f9fa}}
+        .comparison-block{{margin-bottom:2em;background-color:#fff;padding:1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6}}
+        .comparison-container{{display:flex;gap:20px;flex-wrap:wrap}}@media(min-width:768px){{.comparison-container{{flex-wrap:nowrap}}}}
+        .text-box{{flex:1 1 100%;min-width:300px;padding:15px;border:1px solid #ced4da;border-radius:5px;background-color:#fff;height:400px;overflow-y:auto;position:relative}}
+        h2{{color:#212529;border-bottom:2px solid #e9ecef;padding-bottom:.5em; margin-top: 0;}}
+        h3{{color:#343a40;margin-top:0}}
+        .similarity-score{{font-weight:700;color:#0056b3}}
+        .file-info{{font-size:.9em;color:#6c757d;margin-bottom:.5em;font-weight:700}}
+        .highlight{{background-color:#fff3b8;border-radius:3px}}
+        .highlight.clickable{{cursor:pointer;transition:background-color .2s}}
+        .highlight.clickable:hover{{background-color:#ffe066}}
+        .active-highlight{{background-color:#ffd700;box-shadow:0 0 0 2px #ffc107}}
+        .match-text{{border-radius:3px;transition:background-color .3s}}
+        .hover-highlight {{background-color: #ffe066 !important; box-shadow: 0 0 0 2px #ffc107;}}
+        .match-text.active {{ background-color:#fff3b8; }}
+
+        /* New Dynamic Bridge Word Classes */
+        .dynamic-bridge-word {{ border-radius: 3px; padding: 0 2px; transition: background-color 0.2s, color 0.2s; }}
+        .dynamic-bridge-word.is-similar {{ background-color: #fff9e0; color: #000; }}
+        .dynamic-bridge-word.is-dissimilar {{ background-color: #ffcdd2; color: #550000; }}
+
+        .bridge-words.highlighted .dynamic-bridge-word.is-similar {{ background-color: #fff9e0; }}
+        .bridge-words.highlighted .dynamic-bridge-word.is-dissimilar {{ background-color: #ffcdd2; }}
+
+        #controls{{margin-bottom:1.5em;background-color:#fff;padding:1em 1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6;}}
+        .button-container {{ display: flex; gap: 10px; margin-top: 1em; }}
+        .control-button {{ background-color:#28a745;color:#fff;padding:0.4em 0.8em;border:none;border-radius:4px;cursor:pointer;font-weight:700; font-size: 0.9em; }}
+        .control-button.active {{ background-color:#dc3545; }}
+        .filter-container {{ display: flex; gap: 30px; margin-top: 1.5em; padding-top: 1em; border-top: 1px solid #e9ecef; flex-wrap: wrap; }}
+        .slider-block {{ flex: 1; min-width: 250px; }}
+        .slider-wrapper {{ position: relative; height: 30px; }}
+        .slider-label {{ font-weight: 600; color: #495057; margin-bottom: 0.5em; display: block; }}
+        .slider-values {{ display: flex; justify-content: space-between; font-family: monospace; font-size: 1.1em; color: #0056b3; margin-bottom: -5px; }}
+        .form-control-range {{ position: absolute; width: 100%; -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none; }}
+        .form-control-range:focus {{ outline: none; }}
+        .form-control-range::-webkit-slider-thumb {{ -webkit-appearance: none; appearance: none; height: 18px; width: 18px; background: #007bff; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 5px rgba(0,0,0,0.2); pointer-events: auto; cursor: pointer; }}
+        .form-control-range::-moz-range-thumb {{ height: 14px; width: 14px; background: #007bff; border-radius: 50%; border: 2px solid #fff; pointer-events: auto; cursor: pointer; }}
+        .slider-track {{ position: absolute; width: 100%; height: 4px; background-color: #ddd; top: 7px; border-radius: 3px; }}
         </style></head><body>
         <div id="controls">
             <h2>Interactive Text Similarity Comparison</h2>
             <div class="filter-container">
-                <label class="slider-label">Filter by Cosine Similarity</label>
-                <div class="slider-values">
-                    <span id="min-similarity-val">0.000</span>
-                    <span id="max-similarity-val">1.000</span>
+                <div class="slider-block">
+                    <label class="slider-label">Filter by Cosine Similarity</label>
+                    <div class="slider-values">
+                        <span id="min-similarity-val">0.000</span>
+                        <span id="max-similarity-val">1.000</span>
+                    </div>
+                    <div class="slider-wrapper">
+                        <div class="slider-track"></div>
+                        <input type="range" min="0" max="1" value="{similarity_threshold}" step="0.001" class="form-control-range" id="min-similarity">
+                        <input type="range" min="0" max="1" value="1.0" step="0.001" class="form-control-range" id="max-similarity">
+                    </div>
                 </div>
-                <div class="slider-wrapper">
-                    <div class="slider-track"></div>
-                    <input type="range" min="0" max="1" value="0.75" step="0.001" class="form-control-range" id="min-similarity">
-                    <input type="range" min="0" max="1" value="1.0" step="0.001" class="form-control-range" id="max-similarity">
+
+                <div class="slider-block">
+                    <label class="slider-label">Bridge Word Fuzzy Threshold (Yellow Highlight)</label>
+                    <div class="slider-values">
+                        <span id="fuzz-threshold-val">{analyzer.args.fuzz_threshold:.3f}</span>
+                        <span>1.000</span>
+                    </div>
+                    <div class="slider-wrapper">
+                        <div class="slider-track" style="background-color: #ddd;"></div>
+                        <input type="range" min="0" max="1" value="{analyzer.args.fuzz_threshold}" step="0.01" class="form-control-range" id="fuzz-threshold" style="pointer-events: auto;">
+                    </div>
                 </div>
             </div>
             <div class="button-container">
@@ -779,11 +877,15 @@ class SimilarityVisualizer:
                 <button id="toggle-all-similarities" class="control-button">Show All Similarities</button>
             </div>
         </div>"""
+
         html_template_end = """
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     const toggleSimilaritiesBtn = document.getElementById("toggle-all-similarities");
     const comparisonBlocks = document.querySelectorAll(".comparison-block");
+    const fuzzSlider = document.getElementById("fuzz-threshold");
+    const fuzzValSpan = document.getElementById("fuzz-threshold-val");
+
     function clearAllActiveHighlights(block) {
         block.querySelectorAll(".active-highlight").forEach(el => el.classList.remove("active-highlight"));
         block.querySelectorAll(".match-text.active").forEach(el => el.classList.remove("active"));
@@ -802,6 +904,29 @@ document.addEventListener("DOMContentLoaded", function() {
             textBox.scrollTop += scrollOffset;
         }
     }
+
+    // Dynamic Fuzzy Highlighting Processor
+    function updateFuzzyBridges() {
+        const threshold = parseFloat(fuzzSlider.value);
+        fuzzValSpan.textContent = threshold.toFixed(3);
+
+        document.querySelectorAll(".dynamic-bridge-word").forEach(el => {
+            const currentFuzzScore = parseFloat(el.dataset.fuzz);
+            if (currentFuzzScore >= threshold) {
+                el.classList.add("is-similar");
+                el.classList.remove("is-dissimilar");
+            } else {
+                el.classList.add("is-dissimilar");
+                el.classList.remove("is-similar");
+            }
+        });
+    }
+
+    if (fuzzSlider) {
+        fuzzSlider.addEventListener("input", updateFuzzyBridges);
+        updateFuzzyBridges(); // Initialize layout on load
+    }
+
     if (toggleSimilaritiesBtn) {
         toggleSimilaritiesBtn.addEventListener("click", function() {
             const isActive = this.classList.toggle("active");
@@ -942,17 +1067,18 @@ document.addEventListener("DOMContentLoaded", function() {
             path2 = analyzer.file_paths2[j] if analyzer.is_inter_comparison else analyzer.file_paths[j]
             tokens2 = display_token_corpus2[j]
 
-            # Extract years
             year1 = SimilarityVisualizer._extract_year_from_filename(path1.name)
             year2 = SimilarityVisualizer._extract_year_from_filename(path2.name)
 
-            # If the first document was created later than the second, swap them
             if year1 > year2:
                 path1, path2 = path2, path1
                 tokens1, tokens2 = tokens2, tokens1
 
-            # Using (already sorted) data to generate HTML
-            h1, h2 = SimilarityVisualizer.highlight_similarities(tokens1, tokens2, unique_pair_id)
+            h1, h2 = SimilarityVisualizer.highlight_similarities(
+                tokens1, tokens2, unique_pair_id,
+                max_gap_words=analyzer.args.max_gap_words,
+                fuzz_threshold=analyzer.args.fuzz_threshold
+            )
             f1 = path1.name
             f2 = path2.name
             segment = f'<div class="comparison-block" data-score="{score:.4f}" data-pair-id="{unique_pair_id}">' \
@@ -1035,7 +1161,8 @@ document.addEventListener("DOMContentLoaded", function() {
     def generate_linguistic_summary_tsv(analyzer, similarity_threshold: float):
         if analyzer.dist_mat is None or not analyzer.corpus: return
         print(f"Generating linguistic variations summary (TSV) using threshold: {similarity_threshold:.4f}")
-        fuzz_threshold = 0.75
+        fuzz_threshold = analyzer.args.fuzz_threshold
+        max_gap = analyzer.args.max_gap_words
         rows = ["File_1\tFile_2\tVariation_Type\tToken_1\tToken_2\n"]
         display_token_corpus1 = [word_tokenize(text) for text in analyzer.corpus]
         display_token_corpus2 = [word_tokenize(text) for text in (analyzer.corpus2 or analyzer.corpus)]
@@ -1056,7 +1183,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 if size == 0: continue
                 gap_tokens1 = analysis_tokens1[pos1_analysis:a]
                 gap_tokens2 = analysis_tokens2[pos2_analysis:b]
-                if (1 <= len(gap_tokens1) <= 3) or (1 <= len(gap_tokens2) <= 3):
+                if (1 <= len(gap_tokens1) <= max_gap) or (1 <= len(gap_tokens2) <= max_gap):
                     if len(gap_tokens1) == len(gap_tokens2) and len(gap_tokens1) > 0:
                         for t1, t2 in zip(gap_tokens1, gap_tokens2):
                             score = fuzz.ratio(t1, t2) / 100.0
@@ -1074,31 +1201,33 @@ def main():
     print("--- Formulaic Language Analysis in Medieval Expressions ---")
     print("For command-line options, run with the -h flag.")
 
-    # Parse arguments *once* here, using the defaults defined globally
     parsed_args, _ = fargv.fargv(DEFAULT_PARAMS)
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             print(f"Created temporary directory: {tmpdir}")
-            # Pass the *parsed_args* object to the Flame constructor
             analyzer = Flame(args=parsed_args, tmp_dir=tmpdir)
 
             if not analyzer.args.input_path:
-                print("\n\033[91mError: Required argument --input_path is missing.\033[0m") # Red text for error
+                print("\n\033[91mError: Required argument --input_path is missing.\033[0m")
                 print("You must specify the directory containing your text files.")
-                print("\n\033[92mExample Usage:\033[0m") # Green text for example
+                print("\n\033[92mExample Usage:\033[0m")
                 print(f"  python {__file__} --input_path /path/to/your/corpus")
                 print("\nFor a full list of all available options, run:")
                 print(f"  python {__file__} -h")
                 return
 
-            if (analyzer.args.ngram - analyzer.args.n_out) < 1:
-                raise ValueError(f"N-gram size ({analyzer.args.ngram}) minus n-out ({analyzer.args.n_out}) must be at least 1.")
-
             analyzer.load_corpus()
             if not analyzer.corpus:
                 print("Execution halted because no documents were loaded. Please check the input path and file suffix.")
                 return
+
+            # Trigger unsupervised learning auto-tune step if selected
+            if analyzer.args.auto_tune:
+                analyzer.auto_tune_parameters()
+
+            if (analyzer.args.ngram - analyzer.args.n_out) < 1:
+                raise ValueError(f"N-gram size ({analyzer.args.ngram}) minus n-out ({analyzer.args.n_out}) must be at least 1.")
 
             analyzer.compute_similarity_matrix()
             if analyzer.args.no_reports:
