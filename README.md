@@ -54,11 +54,13 @@ The LNO-gram method offers a balance of context-preservation and flexibility tha
 
 ## Installation
 
+requirements: python 3.9 min, pip 26.1 min
+
 It is highly recommended to use a Python virtual environment.
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/kreeedit/FLAME](https://github.com/kreeedit/FLAME)
+    git clone https://github.com/kreeedit/FLAME
     cd FLAME
     ```
 
