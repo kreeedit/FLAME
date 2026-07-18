@@ -45,7 +45,11 @@ The LNO-gram method offers a balance of context-preservation and flexibility tha
 -   **Advanced LNO-gram Analysis**: Systematically generates partial matches by removing combinations of tokens from traditional n-grams.
 -   **Autonomous Parameter Auto-Tuning**: Features a self-supervised "trial digging" engine that injects synthetic transcription/dialect noise into a sample of your text to automatically find the optimal `ngram` and `n_out` setup for your specific data.
 -   **Adaptive Character Normalization**: Autonomously learns and applies normalization rules (e.g., `é` -> `e`, MUFI ligatures) using rapid, vectorized NumPy lookup views over the Unicode Basic Multilingual Plane.
+-   **Phonetic Reduction Layer**: Optional rule-based phonetic character mapping (e.g., `b`→`p`, `c`→`k`, `v`→`f`) that reduces the character set to a configurable target alphabet, inspired by Metaphone/Soundex principles for handling scribal variation in medieval texts.
+-   **BPE Subword Tokenization**: Employs a Byte-Pair Encoding tokenizer with automatically suggested vocabulary size based on corpus morphology, absorbing rare words and orthographic variants into shared subword units.
+-   **Inter-Corpus Comparison**: Supports two-directory mode (`input_path2`) for cross-collection similarity analysis between distinct corpora.
 -   **Automatic Threshold Detection**: Intelligently determines the optimal similarity threshold using Otsu's method on non-zero sparse data, removing manual guesswork.
+-   **Multi-Format Reporting**: Generates interactive side-by-side HTML comparisons with dynamic fuzzy sliders, a similarity heatmap, a TSV summary of related documents, and a granular linguistic variations TSV capturing alternative spellings and lexical substitutions.
 -   **Modern Tabbed Interface (GUI)**: Built with a clean, beginner-friendly tabbed layout (`ttk.Notebook`) to separate data configurations, philological fine-tuning, and execution reporting.
 -   **Dynamic Client-Side Highlights**: Side-by-side alignment outputs include interactive HTML/JS sliders, letting you change the fuzzy match sensitivity for structural bridge words on the fly inside your web browser.
 -   **High Performance & Scalability**: Handles heavy historical corpora by utilizing memory-efficient sparse matrices and fast matrix-vector products.
@@ -131,6 +135,9 @@ python flame.py --input_path ./path/to/texts --auto_tune True --similarity_thres
 | `char_norm_alphabet` | `abcdef...` | String of allowed lowercase base characters for normalization. |
 | `char_norm_strategy` | `'normalize'` | Strategy for handling unknown out-of-alphabet characters. |
 | `char_norm_min_freq` | `1` | Minimum frequency for the adaptive normalizer to register an automated Unicode rule. |
+| `phonetic_reduction_enabled` | `False` | Enables the phonetic reduction layer (character mapping to a reduced alphabet). |
+| `phonetic_reduction_alphabet` | `aefiklmno...` | Target reduced alphabet for phonetic mapping. Characters outside this set become spaces. |
+| `phonetic_reduction_rules` | `b>p,c>k,...` | Comma-separated phonetic mapping rules in `src>dst` format (e.g., `b>p,c>k`). |
 | `vocab_size` | `'auto'` | Target subword vocabulary size. Can be an integer or `'auto'` to calculate via morphology. |
 | `vocab_min_word_freq` | `5` | Minimum frequency for a word to be evaluated for affix candidates. |
 | `vocab_coverage` | `0.85` | Desired morphological coverage percentage of the corpus when `vocab_size` is `'auto'`. |
@@ -139,6 +146,10 @@ python flame.py --input_path ./path/to/texts --auto_tune True --similarity_thres
 | `auto_tune` | `False` | Enables self-supervised parameter discovery via temporary synthetic noise sweeps. |
 | `auto_tune_sample_size` | `30` | Number of document vectors to isolate and sample when executing an `auto_tune` sweep. |
 | `no_reports` | `False` | If True, skips generating user-facing visual summaries and reports completely. |
+| `gen_comparison_html` | `True` | Generate interactive side-by-side HTML comparison reports. |
+| `gen_summary_tsv` | `True` | Generate a TSV summary of related documents and matching segments. |
+| `gen_linguistic_tsv` | `True` | Generate a granular TSV of linguistic variations (alternative spellings, substitutions). |
+| `gen_heatmap` | `True` | Generate an interactive Plotly similarity heatmap HTML file. |
 
 ---
 
@@ -153,8 +164,10 @@ FLAME generates up to four types of output files in the directory where it is ru
 * Directional layout control which places earlier documents on the left based on filename year markers.
 
 
-3. **`similarity_summary.tsv`**: A spreadsheet summary detailing related matches, document frequencies, and prominent, long-standing matching blocks (>4 words).
-4. **`linguistic_variations.tsv`**: A structured corpus-wide register logging alternative spellings, contractions, and lexical substitutions identified inside identical formulaic expressions.
+3. **`similarity_heatmap.html`**: An interactive Plotly heatmap visualizing the full pairwise similarity matrix, useful for spotting clusters of related documents at a glance.
+
+4. **`similarity_summary.tsv`**: A spreadsheet summary detailing related matches, document frequencies, and prominent, long-standing matching blocks (>4 words).
+5. **`linguistic_variations.tsv`**: A structured corpus-wide register logging alternative spellings, contractions, and lexical substitutions identified inside identical formulaic expressions.
 
 ---
 
