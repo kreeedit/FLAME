@@ -132,6 +132,31 @@ class FlameGUI(tk.Tk):
             foreground="gray"
         ).grid(row=3, column=0, columnspan=4, sticky=tk.W, padx=5, pady=2)
 
+        ttk.Separator(phonetic_frame, orient='horizontal').grid(
+            row=4, column=0, columnspan=4, sticky=tk.EW, padx=5, pady=5)
+
+        self.chk_bigram = ttk.Checkbutton(
+            phonetic_frame,
+            text="Enable Bigram Normalization",
+            variable=self.params['bigram_normalization_enabled'],
+            command=self.toggle_bigram_entries
+        )
+        self.chk_bigram.grid(row=5, column=0, columnspan=4, sticky=tk.W, padx=5, pady=5)
+
+        ttk.Label(phonetic_frame, text="Bigram Rules (src>dst, comma-sep):").grid(
+            row=6, column=0, sticky=tk.W, padx=5, pady=5)
+        self.bigram_rules_entry = ttk.Entry(
+            phonetic_frame, textvariable=self.params['bigram_normalization_rules'], width=50)
+        self.bigram_rules_entry.grid(
+            row=6, column=1, columnspan=3, sticky=tk.EW, padx=5, pady=5)
+
+        ttk.Label(
+            phonetic_frame,
+            text="Note: Applies one-to-many string replacements (e.g., ss>s, ie>i) before phonetic reduction.",
+            font=("TkDefaultFont", 9, "italic"),
+            foreground="gray"
+        ).grid(row=7, column=0, columnspan=4, sticky=tk.W, padx=5, pady=2)
+
         bpe_frame = ttk.LabelFrame(tab_nlp, text="Subword Tokenizer (BPE) Heuristics", padding="10")
         bpe_frame.pack(fill=tk.X, pady=5)
         self.create_param_entry(bpe_frame, "vocab_size", "Vocab Size ('auto' or integer):", 0, 0)
@@ -171,6 +196,7 @@ class FlameGUI(tk.Tk):
 
         self.toggle_report_checkboxes()
         self.toggle_phonetic_entries()
+        self.toggle_bigram_entries()
 
         # ==================== RUN & LOG ENGINE (BOTTOM) ====================
         self.run_button = ttk.Button(main_frame, text="Run FLAME Pipeline", command=self.start_analysis_thread)
@@ -213,6 +239,11 @@ class FlameGUI(tk.Tk):
         state = tk.NORMAL if self.params['phonetic_reduction_enabled'].get() else tk.DISABLED
         self.phonetic_alphabet_entry.config(state=state)
         self.phonetic_rules_entry.config(state=state)
+
+    def toggle_bigram_entries(self):
+        """Enables/disables bigram normalization entries based on checkbox state."""
+        state = tk.NORMAL if self.params['bigram_normalization_enabled'].get() else tk.DISABLED
+        self.bigram_rules_entry.config(state=state)
 
     def create_path_entry(self, parent, param_name, label_text, row):
         """Creates a standard path field workspace wrapper configuration."""

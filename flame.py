@@ -286,6 +286,8 @@ DEFAULT_PARAMS = {
     'phonetic_reduction_enabled': False,
     'phonetic_reduction_alphabet': 'aefiklmnopqrstuwxz',
     'phonetic_reduction_rules': 'b>p,c>k,d>t,g>k,j>i,q>k,v>f,y>i,z>s',
+    'bigram_normalization_enabled': False,
+    'bigram_normalization_rules': 'ss>s,ff>f,tt>t,ll>l,ie>i,au>u,ei>i,eu>u,oh>o,ah>a,eh>e,uh>u',
     'vocab_size': 'auto',
     'vocab_min_word_freq': 5,
     'vocab_coverage': 0.85,
@@ -324,6 +326,41 @@ def parse_phonetic_rules(rules_str: str) -> Dict[str, str]:
         src, dst = parts[0].strip(), parts[1].strip()
         if len(src) != 1 or len(dst) != 1:
             print(f"  Warning: Invalid phonetic rule '{rule}' — both src and dst must be single characters. Skipping.")
+            continue
+        mapping[src] = dst
+    return mapping
+
+
+def parse_bigram_rules(rules_str: str) -> Dict[str, str]:
+    """Parse bigram normalization rules from string format 'ss>s,ff>f,...' into a mapping dict.
+
+    Unlike phonetic rules, the source side can be multiple characters (one-to-many).
+    The destination must be exactly one character.
+
+    Args:
+        rules_str: Comma-separated rules, each in 'src>dst' format.
+
+    Returns:
+        Dict mapping source strings to destination characters.
+        Invalid rules are skipped with a warning.
+    """
+    mapping = {}
+    if not rules_str or not rules_str.strip():
+        return mapping
+    for rule in rules_str.split(','):
+        rule = rule.strip()
+        if not rule:
+            continue
+        parts = rule.split('>')
+        if len(parts) != 2:
+            print(f"  Warning: Invalid bigram rule '{rule}' — expected 'src>dst' format. Skipping.")
+            continue
+        src, dst = parts[0].strip(), parts[1].strip()
+        if len(src) < 2:
+            print(f"  Warning: Invalid bigram rule '{rule}' — src must be at least 2 characters. Skipping.")
+            continue
+        if len(dst) != 1:
+            print(f"  Warning: Invalid bigram rule '{rule}' — dst must be a single character. Skipping.")
             continue
         mapping[src] = dst
     return mapping
@@ -408,6 +445,21 @@ class Flame:
             for src, dst in one_to_many_mappings.items():
                 text = text.replace(src, dst)
             pre_processed_corpus.append(text)
+
+        # --- BIGRAM NORMALIZATION ---
+        if self.args.bigram_normalization_enabled:
+            print("\n--- Applying Bigram Normalization ---")
+            bigram_rules = parse_bigram_rules(self.args.bigram_normalization_rules)
+            if bigram_rules:
+                rules_desc = ', '.join(f"'{s}'->'{d}'" for s, d in sorted(bigram_rules.items()))
+                print(f"  Active rules: {rules_desc}")
+                for i in tqdm.tqdm(range(len(pre_processed_corpus)), desc="Bigram Normalization"):
+                    for src, dst in bigram_rules.items():
+                        pre_processed_corpus[i] = pre_processed_corpus[i].replace(src, dst)
+                print(f"  Bigram normalization applied to {len(pre_processed_corpus)} texts.")
+            else:
+                print("  No valid bigram rules configured. Skipping.")
+            print("--- Bigram Normalization Complete ---\n")
 
         full_corpus_text = "\n".join(pre_processed_corpus)
         target_alphabet = self.args.char_norm_alphabet.replace(' ', '')
