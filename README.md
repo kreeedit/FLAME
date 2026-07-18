@@ -45,6 +45,7 @@ The LNO-gram method offers a balance of context-preservation and flexibility tha
 -   **Advanced LNO-gram Analysis**: Systematically generates partial matches by removing combinations of tokens from traditional n-grams.
 -   **Autonomous Parameter Auto-Tuning**: Features a self-supervised "trial digging" engine that injects synthetic transcription/dialect noise into a sample of your text to automatically find the optimal `ngram` and `n_out` setup for your specific data.
 -   **Adaptive Character Normalization**: Autonomously learns and applies normalization rules (e.g., `é` -> `e`, MUFI ligatures) using rapid, vectorized NumPy lookup views over the Unicode Basic Multilingual Plane.
+-   **Bigram Normalization**: Optional preprocessing layer that collapses common doubled consonants and diphthongs (e.g., `ss`→`s`, `ie`→`i`, `au`→`u`) via configurable multi-character to single-character replacement rules, reducing orthographic noise before further processing.
 -   **Phonetic Reduction Layer**: Optional rule-based phonetic character mapping (e.g., `b`→`p`, `c`→`k`, `v`→`f`) that reduces the character set to a configurable target alphabet, inspired by Metaphone/Soundex principles for handling scribal variation in medieval texts.
 -   **BPE Subword Tokenization**: Employs a Byte-Pair Encoding tokenizer with automatically suggested vocabulary size based on corpus morphology, absorbing rare words and orthographic variants into shared subword units.
 -   **Inter-Corpus Comparison**: Supports two-directory mode (`input_path2`) for cross-collection similarity analysis between distinct corpora.
@@ -138,6 +139,8 @@ python flame.py --input_path ./path/to/texts --auto_tune True --similarity_thres
 | `phonetic_reduction_enabled` | `False` | Enables the phonetic reduction layer (character mapping to a reduced alphabet). |
 | `phonetic_reduction_alphabet` | `aefiklmno...` | Target reduced alphabet for phonetic mapping. Characters outside this set become spaces. |
 | `phonetic_reduction_rules` | `b>p,c>k,...` | Comma-separated phonetic mapping rules in `src>dst` format (e.g., `b>p,c>k`). |
+| `bigram_normalization_enabled` | `False` | Enables bigram normalization (multi-character to single-character replacement). |
+| `bigram_normalization_rules` | `ss>s,ff>f,...` | Comma-separated bigram rules in `src>dst` format (e.g., `ss>s,ie>i,au>u`). Source must be 2+ chars, destination exactly 1. |
 | `vocab_size` | `'auto'` | Target subword vocabulary size. Can be an integer or `'auto'` to calculate via morphology. |
 | `vocab_min_word_freq` | `5` | Minimum frequency for a word to be evaluated for affix candidates. |
 | `vocab_coverage` | `0.85` | Desired morphological coverage percentage of the corpus when `vocab_size` is `'auto'`. |
