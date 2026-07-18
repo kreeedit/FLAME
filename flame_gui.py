@@ -99,6 +99,39 @@ class FlameGUI(tk.Tk):
         self.create_param_entry(char_frame, "char_norm_strategy", "Norm Strategy:", 1, 0)
         self.create_param_entry(char_frame, "char_norm_min_freq", "Min. Norm Frequency:", 1, 2)
 
+        phonetic_frame = ttk.LabelFrame(tab_nlp, text="Phonetic Reduction Layer", padding="10")
+        phonetic_frame.pack(fill=tk.X, pady=5)
+        phonetic_frame.columnconfigure(1, weight=1)
+
+        self.chk_phonetic = ttk.Checkbutton(
+            phonetic_frame,
+            text="Enable Phonetic Reduction",
+            variable=self.params['phonetic_reduction_enabled'],
+            command=self.toggle_phonetic_entries
+        )
+        self.chk_phonetic.grid(row=0, column=0, columnspan=4, sticky=tk.W, padx=5, pady=5)
+
+        ttk.Label(phonetic_frame, text="Reduced Alphabet:").grid(
+            row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.phonetic_alphabet_entry = ttk.Entry(
+            phonetic_frame, textvariable=self.params['phonetic_reduction_alphabet'], width=50)
+        self.phonetic_alphabet_entry.grid(
+            row=1, column=1, columnspan=3, sticky=tk.EW, padx=5, pady=5)
+
+        ttk.Label(phonetic_frame, text="Mapping Rules (src>dst, comma-sep):").grid(
+            row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.phonetic_rules_entry = ttk.Entry(
+            phonetic_frame, textvariable=self.params['phonetic_reduction_rules'], width=50)
+        self.phonetic_rules_entry.grid(
+            row=2, column=1, columnspan=3, sticky=tk.EW, padx=5, pady=5)
+
+        ttk.Label(
+            phonetic_frame,
+            text="Note: Characters not in the alphabet or rules become spaces.",
+            font=("TkDefaultFont", 9, "italic"),
+            foreground="gray"
+        ).grid(row=3, column=0, columnspan=4, sticky=tk.W, padx=5, pady=2)
+
         bpe_frame = ttk.LabelFrame(tab_nlp, text="Subword Tokenizer (BPE) Heuristics", padding="10")
         bpe_frame.pack(fill=tk.X, pady=5)
         self.create_param_entry(bpe_frame, "vocab_size", "Vocab Size ('auto' or integer):", 0, 0)
@@ -137,6 +170,7 @@ class FlameGUI(tk.Tk):
         self.chk_heatmap.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
 
         self.toggle_report_checkboxes()
+        self.toggle_phonetic_entries()
 
         # ==================== RUN & LOG ENGINE (BOTTOM) ====================
         self.run_button = ttk.Button(main_frame, text="Run FLAME Pipeline", command=self.start_analysis_thread)
@@ -173,6 +207,12 @@ class FlameGUI(tk.Tk):
         self.chk_summary.config(state=new_state)
         self.chk_linguistic.config(state=new_state)
         self.chk_heatmap.config(state=new_state)
+
+    def toggle_phonetic_entries(self):
+        """Enables/disables phonetic reduction entries based on checkbox state."""
+        state = tk.NORMAL if self.params['phonetic_reduction_enabled'].get() else tk.DISABLED
+        self.phonetic_alphabet_entry.config(state=state)
+        self.phonetic_rules_entry.config(state=state)
 
     def create_path_entry(self, parent, param_name, label_text, row):
         """Creates a standard path field workspace wrapper configuration."""

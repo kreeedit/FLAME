@@ -283,6 +283,9 @@ DEFAULT_PARAMS = {
     'char_norm_alphabet': 'abcdefghijklmnopqrstuvwxyz',
     'char_norm_strategy': 'normalize',
     'char_norm_min_freq': 1,
+    'phonetic_reduction_enabled': False,
+    'phonetic_reduction_alphabet': 'aefiklmnopqrstuwxz',
+    'phonetic_reduction_rules': 'b>p,c>k,d>t,g>k,j>i,q>k,v>f,y>i,z>s',
     'vocab_size': 'auto',
     'vocab_min_word_freq': 5,
     'vocab_coverage': 0.85,
@@ -296,6 +299,35 @@ DEFAULT_PARAMS = {
     'gen_linguistic_tsv': True,
     'gen_heatmap': True,
 }
+
+def parse_phonetic_rules(rules_str: str) -> Dict[str, str]:
+    """Parse phonetic reduction rules from string format 'b>p,c>k,...' into a mapping dict.
+
+    Args:
+        rules_str: Comma-separated rules, each in 'src>dst' format.
+
+    Returns:
+        Dict mapping source characters to destination characters.
+        Invalid rules are skipped with a warning.
+    """
+    mapping = {}
+    if not rules_str or not rules_str.strip():
+        return mapping
+    for rule in rules_str.split(','):
+        rule = rule.strip()
+        if not rule:
+            continue
+        parts = rule.split('>')
+        if len(parts) != 2:
+            print(f"  Warning: Invalid phonetic rule '{rule}' — expected 'src>dst' format. Skipping.")
+            continue
+        src, dst = parts[0].strip(), parts[1].strip()
+        if len(src) != 1 or len(dst) != 1:
+            print(f"  Warning: Invalid phonetic rule '{rule}' — both src and dst must be single characters. Skipping.")
+            continue
+        mapping[src] = dst
+    return mapping
+
 
 class Flame:
     """Main pipeline execution for medieval formulaic language alignment."""
@@ -394,6 +426,38 @@ class Flame:
 
         print("Applying final normalization rules to the corpus...")
         normalized_corpus_full = [learner(text) for text in tqdm.tqdm(pre_processed_corpus, desc="Normalizing")]
+
+        # --- PHONETIC REDUCTION LAYER ---
+        if self.args.phonetic_reduction_enabled:
+            print("\n--- Applying Phonetic Reduction ---")
+            phonetic_alphabet = self.args.phonetic_reduction_alphabet.replace(' ', '')
+            if not phonetic_alphabet:
+                print("Warning: Phonetic reduction alphabet is empty. Skipping phonetic reduction.")
+                print("--- Phonetic Reduction Skipped ---\n")
+            else:
+                phonetic_rules = parse_phonetic_rules(self.args.phonetic_reduction_rules)
+                validated_rules = {}
+                for src, dst in phonetic_rules.items():
+                    if dst not in phonetic_alphabet:
+                        print(f"  Warning: Rule '{src}>{dst}' maps to '{dst}' which is not in the reduced alphabet. Skipping.")
+                    else:
+                        validated_rules[src] = dst
+                if validated_rules:
+                    rules_desc = ', '.join(f"'{s}'->'{d}'" for s, d in sorted(validated_rules.items()))
+                    print(f"  Active rules: {rules_desc}")
+                else:
+                    print("  No valid phonetic rules configured. Only alphabet filtering will apply.")
+                phonetic_mapper = CharacterMapper(
+                    src_alphabet=phonetic_alphabet,
+                    mapping_dict=validated_rules,
+                    unknown_chr=' '
+                )
+                normalized_corpus_full = [
+                    phonetic_mapper(text)
+                    for text in tqdm.tqdm(normalized_corpus_full, desc="Phonetic Reduction")
+                ]
+                print(f"  Phonetic reduction applied to {len(normalized_corpus_full)} texts.")
+                print("--- Phonetic Reduction Complete ---\n")
 
         print("\n--- Training Subword Tokenizer ---")
         corpus_file = os.path.join(self.tmp_dir, 'temp_corpus.txt')
