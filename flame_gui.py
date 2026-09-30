@@ -165,7 +165,7 @@ class FlameGUI(tk.Tk):
 
         alignment_frame = ttk.LabelFrame(tab_nlp, text="Philological Variation & Bridge Words Evaluation", padding="10")
         alignment_frame.pack(fill=tk.X, pady=5)
-        self.create_param_entry(alignment_frame, "fuzz_threshold", "Bridge Word Fuzzy Sensitivity (0-1):", 0, 0)
+        self.create_param_entry(alignment_frame, "fuzz_threshold", "Variant vs. Bridge Threshold (0-1):", 0, 0)
         self.create_param_entry(alignment_frame, "max_gap_words", "Max Bridge Word Length Gap:", 0, 2)
 
         # ==================== TAB 3: AUTO-TUNE & REPORTS ====================
