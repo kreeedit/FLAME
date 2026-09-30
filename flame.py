@@ -286,7 +286,11 @@ DEFAULT_PARAMS = {
     'vocab_size': 'auto',
     'vocab_min_word_freq': 5,
     'vocab_coverage': 0.85,
-    'fuzz_threshold': 0.75,
+    # Decides variant vs. bridge for the words between two matches (see classify_gap).
+    # Calibrated on a two-copies comparison (Georg_problems0928): genuine divergences
+    # scored <= 0.40 once folded, while spelling variants scored >= 0.72 -- so anything
+    # in 0.45-0.70 separates cleanly and 0.70 keeps the borderline cases as variants.
+    'fuzz_threshold': 0.70,
     'max_gap_words': 5,
     'auto_tune': False,
     'auto_tune_sample_size': 30,
@@ -363,12 +367,10 @@ class Flame:
 
         lowercased_corpus = [text.lower() for text in corpus_for_learning]
 
-        mufi_char_mappings = {
-            'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'ĳ': 'ij', 'ð': 'dh', 'þ': 'th', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬆ': 'st',
-            'ſ': 's', 'ꝇ': 'l', 'ꝑ': 'p', 'ꝛ': 'r', 'ƿ': 'w', 'ᵹ': 'g', 'ꝺ': 'd', 'ꝼ': 'f'
-        }
-        one_to_many_mappings = {k: v for k, v in mufi_char_mappings.items() if len(v) > 1}
-        one_to_one_mappings = {k: v for k, v in mufi_char_mappings.items() if len(v) == 1}
+        # Shared with the visualizer (see MUFI_ONE_TO_MANY / MUFI_ONE_TO_ONE below), so
+        # that a gap is judged by the same normalization the matcher itself applied.
+        one_to_many_mappings = MUFI_ONE_TO_MANY
+        one_to_one_mappings = MUFI_ONE_TO_ONE
 
         print("\n--- Applying 1-to-many character replacements (e.g., ligatures) ---")
         pre_processed_corpus = []
@@ -697,6 +699,84 @@ class Flame:
         save_npz(os.path.join(self.tmp_dir, 'dist_mat.npz'), self.dist_mat)
 
 
+# =============================================================================
+# Shared normalization & orthographic-variant machinery
+# =============================================================================
+# The matching engine (Flame.load_corpus) and the visualizer MUST agree on what
+# counts as "the same word". The engine expands ligatures, folds accents and turns
+# anything outside a-z into a space, so it happily matches texts that differ in
+# spelling. The visualizer used to compare raw lowercased tokens instead, which made
+# every orthographic variant look like an unmatched gap -- and every gap was then
+# rendered unconditionally as a "bridge word". These helpers give both sides one
+# definition to share.
+
+MUFI_ONE_TO_MANY = {
+    'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'ĳ': 'ij', 'ð': 'dh', 'þ': 'th', 'ﬁ': 'fi',
+    'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬆ': 'st'
+}
+MUFI_ONE_TO_ONE = {
+    'ſ': 's', 'ꝇ': 'l', 'ꝑ': 'p', 'ꝛ': 'r', 'ƿ': 'w', 'ᵹ': 'g', 'ꝺ': 'd', 'ꝼ': 'f'
+}
+
+
+def apply_mufi_one_to_many(text: str) -> str:
+    """Ligature expansions -- the same table the engine applies in load_corpus()."""
+    for src, dst in MUFI_ONE_TO_MANY.items():
+        text = text.replace(src, dst)
+    return text
+
+
+def normalize_for_compare(text: str) -> str:
+    """Mirrors the engine's AdaptiveAlphabet pass: lowercase, expand ligatures, fold
+    combining marks, and turn anything that is not a-z into a space."""
+    text = apply_mufi_one_to_many(text.lower())
+    for src, dst in MUFI_ONE_TO_ONE.items():
+        text = text.replace(src, dst)
+    out = []
+    for char in text:
+        if 'a' <= char <= 'z':
+            out.append(char)
+            continue
+        decomposed = unicodedata.normalize('NFKD', char)
+        folded = ''.join(c for c in decomposed if not unicodedata.combining(c))
+        out.append(folded if folded and all('a' <= c <= 'z' for c in folded) else ' ')
+    return re.sub(r'\s+', ' ', ''.join(out)).strip()
+
+
+def fold_medieval_orthography(text: str) -> str:
+    """Collapses the spelling variation medieval scribes actually produced, so that
+    vnd/und, deßhalb/deshalb or lohns/lones compare as the same word. Only ever used
+    to classify a gap -- never to render text."""
+    text = re.sub(r'([aeiou])h', r'\1', text)              # Dehnungs-h: lohns -> lons
+    text = text.replace('v', 'u').replace('w', 'u')        # u/v/w merge
+    text = text.replace('j', 'i').replace('y', 'i')        # i/j/y merge
+    text = text.replace('ck', 'k').replace('tz', 'z').replace('cz', 'z')
+    return re.sub(r'(.)\1+', r'\1', text)                  # ss -> s, nn -> n
+
+
+def fold_for_compare(text: str) -> str:
+    return fold_medieval_orthography(normalize_for_compare(text))
+
+
+def classify_gap(gap1_tokens: List[str], gap2_tokens: List[str], fuzzy_threshold: float) -> Tuple[str, float]:
+    """Classifies the words sitting between two matches.
+
+    Returns (kind, ratio), where kind is one of:
+      'insertion' -- the words exist in only one of the two texts;
+      'variant'   -- both sides carry words and their folded forms agree, i.e. the
+                     same wording spelled differently;
+      'bridge'    -- both sides carry words but they genuinely diverge.
+    The ratio is measured on the folded forms, so punctuation and accent noise can no
+    longer drag a variant below the threshold on their own.
+    """
+    side1 = fold_for_compare(' '.join(gap1_tokens))
+    side2 = fold_for_compare(' '.join(gap2_tokens))
+    ratio = fuzz.ratio(side1, side2) / 100.0
+    if not side1.split() or not side2.split():
+        return 'insertion', ratio
+    return ('variant' if ratio >= fuzzy_threshold else 'bridge'), ratio
+
+
 class SimilarityVisualizer:
     detokenizer = TreebankWordDetokenizer()
 
@@ -708,32 +788,36 @@ class SimilarityVisualizer:
         return 9999
 
     @staticmethod
-    def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], is_bridge: bool, max_gap_words: int, similarity_threshold: float) -> Tuple[str, str]:
-        """Renders the gap between matches, storing the raw fuzzy ratio inside data attributes."""
+    def _render_gap_html(gap1_tokens: List[str], gap2_tokens: List[str], max_gap_words: int, fuzzy_threshold: float) -> Tuple[str, str]:
+        """Renders the words between two matches.
+
+        Only a genuine divergence is a bridge: a one-sided gap is an insertion, and a
+        gap whose folded forms agree is an orthographic variant of the same wording.
+        """
         words1 = [token for token in gap1_tokens if token.isalnum()]
         words2 = [token for token in gap2_tokens if token.isalnum()]
-        num_words1 = len(words1)
-        num_words2 = len(words2)
         str1 = SimilarityVisualizer.detokenizer.detokenize(gap1_tokens)
         str2 = SimilarityVisualizer.detokenizer.detokenize(gap2_tokens)
 
         if not str1 and not str2:
             return "", ""
 
-        if (num_words1 <= max_gap_words) and (num_words2 <= max_gap_words) and (num_words1 + num_words2 > 0):
-            # Calculate the ratio, but do NOT hardcode the visual class yet
-            ratio = fuzz.ratio(str1.lower(), str2.lower()) / 100.0
-            html1 = f'<span class="dynamic-bridge-word" data-fuzz="{ratio:.3f}">{str1}</span>'
-            html2 = f'<span class="dynamic-bridge-word" data-fuzz="{ratio:.3f}">{str2}</span>'
-        else:
-            html1 = str1
-            html2 = str2
+        if not (len(words1) <= max_gap_words and len(words2) <= max_gap_words and (words1 or words2)):
+            return str1, str2
 
-        if (num_words1 <= max_gap_words) and (num_words2 <= max_gap_words) and (num_words1 + num_words2 > 0):
-            html1 = f'<span class="bridge-words">{html1}</span>' if html1 else ""
-            html2 = f'<span class="bridge-words">{html2}</span>' if html2 else ""
+        kind, ratio = classify_gap(gap1_tokens, gap2_tokens, fuzzy_threshold)
 
-        return html1, html2
+        if kind == 'insertion':
+            # Wording present in one text only: nothing is bridged here, and the absent
+            # side must not turn into an empty highlight.
+            html1 = f'<span class="dynamic-bridge-word" data-kind="insertion" data-fuzz="{ratio:.3f}">{str1}</span>' if str1 else ""
+            html2 = f'<span class="dynamic-bridge-word" data-kind="insertion" data-fuzz="{ratio:.3f}">{str2}</span>' if str2 else ""
+            return html1, html2
+
+        wrapper = "bridge-words" if kind == "bridge" else "variant-words"
+        html1 = f'<span class="dynamic-bridge-word" data-kind="{kind}" data-fuzz="{ratio:.3f}">{str1}</span>'
+        html2 = f'<span class="dynamic-bridge-word" data-kind="{kind}" data-fuzz="{ratio:.3f}">{str2}</span>'
+        return f'<span class="{wrapper}">{html1}</span>', f'<span class="{wrapper}">{html2}</span>'
 
     @staticmethod
     def highlight_similarities(text1_original_tokens: List[str], text2_original_tokens: List[str], unique_pair_id: str, max_gap_words: int, fuzz_threshold: float) -> Tuple[str, str]:
@@ -750,19 +834,6 @@ class SimilarityVisualizer:
         raw_matching_blocks = matcher.get_matching_blocks()
         highlighted_html_text1, highlighted_html_text2 = [], []
 
-        bridge_word_sections = []
-        for idx in range(len(raw_matching_blocks) - 1):
-            curr, next_ = raw_matching_blocks[idx], raw_matching_blocks[idx+1]
-            gap1_start_analysis, gap1_end_analysis = curr.a + curr.size, next_.a
-            gap2_start_analysis, gap2_end_analysis = curr.b + curr.size, next_.b
-            if (1 <= (gap1_end_analysis - gap1_start_analysis) <= max_gap_words) and \
-               (1 <= (gap2_end_analysis - gap2_start_analysis) <= max_gap_words):
-                g1s_orig = map_analysis_to_original1[gap1_start_analysis]
-                g1e_orig = map_analysis_to_original1[gap1_end_analysis - 1] + 1
-                g2s_orig = map_analysis_to_original2[gap2_start_analysis]
-                g2e_orig = map_analysis_to_original2[gap2_end_analysis - 1] + 1
-                bridge_word_sections.append({'t1i': (g1s_orig, g1e_orig), 't2i': (g2s_orig, g2e_orig)})
-
         pos1, pos2, m_id = 0, 0, 0
         for a_analysis, b_analysis, size in raw_matching_blocks:
             if size == 0: continue
@@ -773,8 +844,7 @@ class SimilarityVisualizer:
             if pos1 < a_start_orig or pos2 < b_start_orig:
                 gap1_tokens = text1_original_tokens[pos1:a_start_orig]
                 gap2_tokens = text2_original_tokens[pos2:b_start_orig]
-                is_b = any(b['t1i'] == (pos1, a_start_orig) for b in bridge_word_sections)
-                gap1_html, gap2_html = SimilarityVisualizer._render_gap_html(gap1_tokens, gap2_tokens, is_b, max_gap_words, fuzz_threshold)
+                gap1_html, gap2_html = SimilarityVisualizer._render_gap_html(gap1_tokens, gap2_tokens, max_gap_words, fuzz_threshold)
                 if gap1_html: highlighted_html_text1.append(gap1_html)
                 if gap2_html: highlighted_html_text2.append(gap2_html)
 
@@ -821,13 +891,24 @@ class SimilarityVisualizer:
         .hover-highlight {{background-color: #ffe066 !important; box-shadow: 0 0 0 2px #ffc107;}}
         .match-text.active {{ background-color:#fff3b8; }}
 
-        /* New Dynamic Bridge Word Classes */
+        /* Gap classification: a genuine bridge is fuzzy-coloured by the slider, an
+           orthographic variant is green, an insertion is blue. */
         .dynamic-bridge-word {{ border-radius: 3px; padding: 0 2px; transition: background-color 0.2s, color 0.2s; }}
-        .dynamic-bridge-word.is-similar {{ background-color: #fff9e0; color: #000; }}
-        .dynamic-bridge-word.is-dissimilar {{ background-color: #ffcdd2; color: #550000; }}
+        .dynamic-bridge-word[data-kind="bridge"].is-similar {{ background-color: #fff9e0; color: #000; }}
+        .dynamic-bridge-word[data-kind="bridge"].is-dissimilar {{ background-color: #ffcdd2; color: #550000; }}
+        .dynamic-bridge-word[data-kind="variant"] {{ background-color: #d8f3dc; color: #0b3d1e; }}
+        .dynamic-bridge-word[data-kind="insertion"] {{ background-color: #e7f1ff; color: #0b3d6b; }}
 
-        .bridge-words.highlighted .dynamic-bridge-word.is-similar {{ background-color: #fff9e0; }}
-        .bridge-words.highlighted .dynamic-bridge-word.is-dissimilar {{ background-color: #ffcdd2; }}
+        .bridge-words.highlighted .dynamic-bridge-word.is-similar {{ background-color: #fff3b8; box-shadow: 0 0 0 1px #e0a800; }}
+        .bridge-words.highlighted .dynamic-bridge-word.is-dissimilar {{ background-color: #ffb3ba; box-shadow: 0 0 0 1px #c62828; }}
+        .variant-words.highlighted .dynamic-bridge-word[data-kind="variant"] {{ background-color: #95d5b2; box-shadow: 0 0 0 1px #2d6a4f; }}
+
+        .legend {{ display: flex; gap: 20px; flex-wrap: wrap; margin-top: 1em; font-size: 0.85em; color: #495057; }}
+        .legend-item {{ display: flex; align-items: center; gap: 6px; }}
+        .legend-swatch {{ display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid #ced4da; }}
+        .swatch-bridge {{ background-color: #fff9e0; }}
+        .swatch-variant {{ background-color: #d8f3dc; }}
+        .swatch-insertion {{ background-color: #e7f1ff; }}
 
         #controls{{margin-bottom:1.5em;background-color:#fff;padding:1em 1.5em;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid #dee2e6;}}
         .button-container {{ display: flex; gap: 10px; margin-top: 1em; }}
@@ -873,8 +954,13 @@ class SimilarityVisualizer:
                 </div>
             </div>
             <div class="button-container">
-                <button id="toggle-all-bridge-words" class="control-button">Show All Bridge Words</button>
+                <button id="toggle-all-bridge-words" class="control-button">Show All Bridge &amp; Variant Words</button>
                 <button id="toggle-all-similarities" class="control-button">Show All Similarities</button>
+            </div>
+            <div class="legend">
+                <span class="legend-item"><span class="legend-swatch swatch-bridge"></span>Bridge word &mdash; the two texts genuinely diverge here</span>
+                <span class="legend-item"><span class="legend-swatch swatch-variant"></span>Orthographic variant &mdash; same wording, different spelling</span>
+                <span class="legend-item"><span class="legend-swatch swatch-insertion"></span>Insertion &mdash; present in one of the two texts only</span>
             </div>
         </div>"""
 
@@ -910,7 +996,9 @@ document.addEventListener("DOMContentLoaded", function() {
         const threshold = parseFloat(fuzzSlider.value);
         fuzzValSpan.textContent = threshold.toFixed(3);
 
-        document.querySelectorAll(".dynamic-bridge-word").forEach(el => {
+        // Only genuine bridges are fuzzy-coloured; variants and insertions keep the
+        // static colours that say what they are.
+        document.querySelectorAll('.dynamic-bridge-word[data-kind="bridge"]').forEach(el => {
             const currentFuzzScore = parseFloat(el.dataset.fuzz);
             if (currentFuzzScore >= threshold) {
                 el.classList.add("is-similar");
@@ -981,8 +1069,8 @@ document.addEventListener("DOMContentLoaded", function() {
     if (toggleBridgeBtn) {
         toggleBridgeBtn.addEventListener("click", function() {
             const isActive = this.classList.toggle("active");
-            document.querySelectorAll(".bridge-words").forEach(el => el.classList.toggle("highlighted", isActive));
-            this.textContent = isActive ? "Hide All Bridge Words" : "Show All Bridge Words";
+            document.querySelectorAll(".bridge-words, .variant-words").forEach(el => el.classList.toggle("highlighted", isActive));
+            this.textContent = isActive ? "Hide All Bridge & Variant Words" : "Show All Bridge & Variant Words";
         });
     }
     function filterDocuments() {
@@ -1184,11 +1272,20 @@ document.addEventListener("DOMContentLoaded", function() {
                 gap_tokens1 = analysis_tokens1[pos1_analysis:a]
                 gap_tokens2 = analysis_tokens2[pos2_analysis:b]
                 if (1 <= len(gap_tokens1) <= max_gap) or (1 <= len(gap_tokens2) <= max_gap):
-                    if len(gap_tokens1) == len(gap_tokens2) and len(gap_tokens1) > 0:
+                    # Same classification the HTML uses, so the report and the visual no
+                    # longer disagree about what is a bridge and what is a spelling variant.
+                    kind, _ = classify_gap(gap_tokens1, gap_tokens2, fuzz_threshold)
+                    if kind == 'insertion':
+                        for t1 in gap_tokens1: rows.append(f"{file1_path.name}\t{file2_path.name}\tInsertion\t{t1}\t-\n")
+                        for t2 in gap_tokens2: rows.append(f"{file1_path.name}\t{file2_path.name}\tInsertion\t-\t{t2}\n")
+                    elif kind == 'variant' and len(gap_tokens1) == len(gap_tokens2):
                         for t1, t2 in zip(gap_tokens1, gap_tokens2):
-                            score = fuzz.ratio(t1, t2) / 100.0
-                            variation_type = "Similar Bridge Word" if score >= fuzz_threshold else "Different Bridge Word"
-                            rows.append(f"{file1_path.name}\t{file2_path.name}\t{variation_type}\t{t1}\t{t2}\n")
+                            rows.append(f"{file1_path.name}\t{file2_path.name}\tOrthographic Variant\t{t1}\t{t2}\n")
+                    elif kind == 'variant':
+                        rows.append(f"{file1_path.name}\t{file2_path.name}\tOrthographic Variant\t{' '.join(gap_tokens1)}\t{' '.join(gap_tokens2)}\n")
+                    elif len(gap_tokens1) == len(gap_tokens2) and len(gap_tokens1) > 0:
+                        for t1, t2 in zip(gap_tokens1, gap_tokens2):
+                            rows.append(f"{file1_path.name}\t{file2_path.name}\tDifferent Bridge Word\t{t1}\t{t2}\n")
                     else:
                         for t1 in gap_tokens1: rows.append(f"{file1_path.name}\t{file2_path.name}\tDifferent Bridge Word\t{t1}\t-\n")
                         for t2 in gap_tokens2: rows.append(f"{file1_path.name}\t{file2_path.name}\tDifferent Bridge Word\t-\t{t2}\n")
