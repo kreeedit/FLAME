@@ -1546,11 +1546,13 @@ def main():
             analyzer = Flame(args=parsed_args, tmp_dir=tmpdir)
 
             if not analyzer.args.input_path:
-                print("\n\033[91mError: Required argument --input_path is missing.\033[0m")
-                print("You must specify the directory containing your text files.")
+                print("\n\033[91mError: Required argument -input_path is missing.\033[0m")
+                print("You must specify the directory containing your text files, or a glob pattern.")
                 print("\n\033[92mExample Usage:\033[0m")
-                print(f"  python {__file__} --input_path /path/to/your/corpus")
-                print("\nFor a full list of all available options, run:")
+                print(f"  python {__file__} -input_path /path/to/your/corpus")
+                print(f"  python {__file__} -input_path './corpus/SUBSET**/*.txt'")
+                print("\nNote: arguments take a single leading dash (-input_path, not --input_path).")
+                print("For a full list of all available options, run:")
                 print(f"  python {__file__} -h")
                 return
 
@@ -1568,7 +1570,7 @@ def main():
 
             analyzer.compute_similarity_matrix()
             if analyzer.args.no_reports:
-                print("\n--- Report generation skipped due to --no_reports flag. ---")
+                print("\n--- Report generation skipped due to -no_reports flag. ---")
             else:
                 print("\n--- Generating Reports ---")
 

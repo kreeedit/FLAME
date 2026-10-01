@@ -49,6 +49,8 @@ The LNO-gram method offers a balance of context-preservation and flexibility tha
 -   **Phonetic Reduction Layer**: Optional rule-based phonetic character mapping (e.g., `b`→`p`, `c`→`k`, `v`→`f`) that reduces the character set to a configurable target alphabet, inspired by Metaphone/Soundex principles for handling scribal variation in medieval texts.
 -   **BPE Subword Tokenization**: Employs a Byte-Pair Encoding tokenizer with automatically suggested vocabulary size based on corpus morphology, absorbing rare words and orthographic variants into shared subword units.
 -   **Inter-Corpus Comparison**: Supports two-directory mode (`input_path2`) for cross-collection similarity analysis between distinct corpora.
+-   **Flexible Corpus Selection**: Takes either a directory (searched recursively) or a glob pattern, so you can analyse a subset of a large corpus — e.g. `./fsdb/DE-LANRWR**/*.htr.txt` — without copying files around.
+-   **Unambiguous File Identity**: Reports name every text by its path relative to the input root, so deeply nested corpora that reuse the same filename per folder (as *fsdb* does) stay distinguishable. Flat corpora are unaffected, since there the relative path is the filename.
 -   **Automatic Threshold Detection**: Intelligently determines the optimal similarity threshold using Otsu's method on non-zero sparse data, removing manual guesswork.
 -   **Multi-Format Reporting**: Generates interactive side-by-side HTML comparisons with dynamic fuzzy sliders, a similarity heatmap, a TSV summary of related documents, and a granular linguistic variations TSV capturing alternative spellings and lexical substitutions.
 -   **Modern Tabbed Interface (GUI)**: Built with a clean, beginner-friendly tabbed layout (`ttk.Notebook`) to separate data configurations, philological fine-tuning, and execution reporting.
@@ -108,27 +110,64 @@ python flame_gui.py
 
 ### Command-Line Interface (CLI)
 
+Arguments use a **single leading dash** (`-input_path`, not `--input_path`), in either
+the `-param value` or `-param=value` form.
+
 To see all available options and their defaults, run:
 
 ```bash
-python flame.py --help
+python flame.py -h
 
 ```
 
 **Example (Using Auto-Tune):**
 
 ```bash
-python flame.py --input_path ./path/to/texts --auto_tune True --similarity_threshold auto
+python flame.py -input_path ./path/to/texts -auto_tune True -similarity_threshold auto
 
 ```
+
+**Example (A subset of a nested corpus, given as a pattern):**
+
+```bash
+python flame.py -input_path './fsdb/DE-LANRWR**/*.htr.txt' -similarity_threshold 0.60
+
+```
+
+### Input Paths, Patterns, and How Files Are Named
+
+`input_path` (and `input_path2`) accepts either a **directory** or a **glob pattern**:
+
+- **A directory** is searched recursively for every file ending in `file_suffix`
+  (`*.txt` by default), at any depth.
+- **A glob pattern** is expanded as-is, and then decides alone which files are read —
+  `file_suffix` is deliberately **not** applied on top of it, so a pattern like
+  `*.htr` is not silently emptied by a `.txt` filter.
+
+This matters for corpora that nest one folder per document and reuse the same filename
+everywhere (for example an *fsdb* tree of `DE-LANRWR001/text.htr.txt`,
+`DE-LANRWR002/text.htr.txt`, …). Because a bare filename would be ambiguous there,
+**every report names a text by its path relative to the input root**, so the above comes
+out as `DE-LANRWR001/text.htr.txt`. When the input is flat, that relative path *is* the
+filename, so existing outputs are unchanged.
+
+Two further properties worth knowing:
+
+- **The file list is sorted**, so corpus order — and with it the row/column order of the
+  distance matrix and the heatmap — is reproducible instead of following whatever order
+  the filesystem happened to return.
+- **`**` is only recursive as a standalone path component.** `./fsdb/DE-LANRWR**/*.htr.txt`
+  reads the `**` exactly like `*`, i.e. it descends a single level — which is what the
+  fsdb layout needs. For unbounded depth, write `./fsdb/**/*.htr.txt`. FLAME prints a note
+  when it sees a doubled star that is not a standalone component.
 
 ### All CLI Arguments
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `input_path` | `''` | **Required.** Path to the primary corpus directory. |
-| `input_path2` | `''` | Optional path to a second corpus directory for cross-inter-corpus comparison. |
-| `file_suffix` | `.txt` | File extension of text documents to process. |
+| `input_path` | `''` | **Required.** Path to the primary corpus: a directory, or a glob pattern such as `./fsdb/DE-LANRWR**/*.htr.txt`. |
+| `input_path2` | `''` | Optional second corpus (directory or glob pattern) for cross-corpus comparison. |
+| `file_suffix` | `.txt` | File extension of text documents to process. Ignored when `input_path` is a glob pattern, which then decides alone which files are read. |
 | `keep_texts` | `10000` | Maximum number of texts to load from each directory. |
 | `ngram` | `6` | The size of the n-gram window for feature generation. |
 | `n_out` | `1` | Number of tokens to "leave out" (drop) from each n-gram window. |
@@ -146,8 +185,8 @@ python flame.py --input_path ./path/to/texts --auto_tune True --similarity_thres
 | `vocab_size` | `'auto'` | Target subword vocabulary size. Can be an integer or `'auto'` to calculate via morphology. |
 | `vocab_min_word_freq` | `5` | Minimum frequency for a word to be evaluated for affix candidates. |
 | `vocab_coverage` | `0.85` | Desired morphological coverage percentage of the corpus when `vocab_size` is `'auto'`. |
-| `fuzz_threshold` | `0.75` | Base fuzzy string ratio metric (0-1) to classify non-matching gaps as "similar" bridge variants. |
-| `max_gap_words` | `5` | Maximum structural token length allowed inside an individual non-matching gap segment. |
+| `fuzz_threshold` | `0.70` | Orthographic-variant vs. bridge cutoff (0-1). Words between two matches whose spelling-folded forms score at least this high are reported as an *Orthographic Variant*; below it they are a genuine *Bridge*. Calibrated on real two-copies comparisons, where genuine divergences score ≤ 0.40 and spelling variants ≥ 0.72. |
+| `max_gap_words` | `5` | Maximum structural token length allowed inside an individual non-matching gap segment. Larger gaps are left unmarked rather than classified. |
 | `auto_tune` | `False` | Enables self-supervised parameter discovery via temporary synthetic noise sweeps. |
 | `auto_tune_sample_size` | `30` | Number of document vectors to isolate and sample when executing an `auto_tune` sweep. |
 | `no_reports` | `False` | If True, skips generating user-facing visual summaries and reports completely. |
@@ -160,19 +199,30 @@ python flame.py --input_path ./path/to/texts --auto_tune True --similarity_thres
 
 ## Outputs
 
-FLAME generates up to four types of output files in the directory where it is run:
+FLAME generates up to four types of output files in the directory where it is run. In all
+of them a document is identified by its **path relative to the input root** (see
+[Input Paths, Patterns, and How Files Are Named](#input-paths-patterns-and-how-files-are-named)).
 
 1. **`dist_mat.npz`**: A SciPy sparse matrix file containing all pairwise similarity scores. Essential for downstream validation without re-computing features.
 2. **`text_comparisons_XX.html`**: Interactive side-by-side alignment report files. This is the primary visualization engine for philological exploration. Features include:
 * Synchronized scroll-locking and text matching cross-highlights.
-* A **Live Fuzzy Slider** to dynamically adjust the color classification threshold of structural bridge variants on-the-fly.
+* A **Live Fuzzy Slider** to dynamically adjust, in the browser, which structural bridges count as similar.
+* A **three-way classification** of the words sitting between two matches, shown by colour and explained by an on-page legend:
+  * **Bridge word** (yellow) — the two texts genuinely diverge here.
+  * **Orthographic variant** (green) — the same wording spelled differently, e.g. `deßhalb` / `deshalb`.
+  * **Insertion** (blue) — the wording is present in one of the two texts only.
 * Directional layout control which places earlier documents on the left based on filename year markers.
 
 
 3. **`similarity_heatmap.html`**: An interactive Plotly heatmap visualizing the full pairwise similarity matrix, useful for spotting clusters of related documents at a glance.
 
 4. **`similarity_summary.tsv`**: A spreadsheet summary detailing related matches, document frequencies, and prominent, long-standing matching blocks (>4 words).
-5. **`linguistic_variations.tsv`**: A structured corpus-wide register logging alternative spellings, contractions, and lexical substitutions identified inside identical formulaic expressions.
+5. **`linguistic_variations.tsv`**: A structured corpus-wide register of what sits inside identical formulaic expressions, with columns `File_1`, `File_2`, `Variation_Type`, `Token_1`, `Token_2`. `Variation_Type` is one of:
+* `Orthographic Variant` — the same wording spelled differently on each side.
+* `Insertion` — present in one of the two texts only (the other column carries `-`).
+* `Different Bridge Word` — genuinely divergent wording between two matches.
+
+The classification uses the same code path as the HTML report, so the register and the visualisation never disagree about what counts as a variant and what counts as a bridge.
 
 ---
 
@@ -248,6 +298,37 @@ DEFAULT_PARAMS = {
 }
 
 ```
+
+### Analyse one series inside a nested corpus
+
+Corpora such as *fsdb* nest one folder per document and reuse the same filename
+everywhere. Point `input_path` at a pattern to select a series, and the reports will
+still tell the documents apart, because each is named by its path relative to the
+pattern's leading directory:
+
+```python
+DEFAULT_PARAMS = {
+    'input_path': './fsdb/DE-LANRWR**/*.htr.txt',   # one series, one level down
+    'file_suffix': '.txt',                           # ignored: the pattern decides
+    'keep_texts': 100000,
+    'ngram': 6,
+    'n_out': 1,
+    'min_text_length': 150,
+    'similarity_threshold': 'auto',
+    'auto_threshold_method': 'otsu',
+    'char_norm_alphabet': "abcdefghijklmnopqrstuvwxyz",
+    'char_norm_strategy': 'normalize',
+    'char_norm_min_freq': 1,
+    'vocab_size': 'auto',
+    'vocab_min_word_freq': 5,
+    'vocab_coverage': 0.85,
+}
+
+```
+
+Reports then read `DE-LANRWR001/text.htr.txt` rather than an ambiguous
+`text.htr.txt`. To compare two series against each other instead, put one pattern in
+`input_path` and the other in `input_path2`; each side is named relative to its own root.
 
 ---
 
