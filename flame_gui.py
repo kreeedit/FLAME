@@ -64,8 +64,8 @@ class FlameGUI(tk.Tk):
         paths_frame = ttk.LabelFrame(tab_core, text="Corpus Directory Selection", padding="10")
         paths_frame.pack(fill=tk.X, pady=5)
         paths_frame.columnconfigure(1, weight=1)
-        self.create_path_entry(paths_frame, "input_path", "Primary Corpus Path:", 0)
-        self.create_path_entry(paths_frame, "input_path2", "Secondary Corpus Path (Optional):", 1)
+        self.create_path_entry(paths_frame, "input_path", "Primary Corpus Path (folder or glob pattern):", 0)
+        self.create_path_entry(paths_frame, "input_path2", "Secondary Corpus Path (Optional, folder or glob pattern):", 1)
 
         core_params_frame = ttk.LabelFrame(tab_core, text="Core Windowing & Matching Settings", padding="10")
         core_params_frame.pack(fill=tk.X, pady=5)

@@ -1,4 +1,5 @@
 import numpy as np
+import glob
 import os
 import pathlib
 import re
@@ -374,11 +375,18 @@ class Flame:
     """Main pipeline execution for medieval formulaic language alignment."""
     def __init__(self, args, tmp_dir: str = '.'):
         self.args = args
-        self.is_inter_comparison = bool(self.args.input_path2 and os.path.isdir(self.args.input_path2))
+        # The second input may be a directory or a glob pattern, so a pattern must not
+        # be mistaken for "no second corpus".
+        self.is_inter_comparison = bool(self.args.input_path2 and
+                                        (os.path.isdir(self.args.input_path2) or
+                                         looks_like_pattern(self.args.input_path2)))
         self.tmp_dir = tmp_dir
 
         self.corpus: List[str] = []
         self.file_paths: List[pathlib.Path] = []
+        # Roots the reports name texts relative to (see display_path).
+        self.corpus_root: Optional[pathlib.Path] = None
+        self.corpus_root2: Optional[pathlib.Path] = None
         self.tokenized_corpus: List[List[str]] = []
         self.corpus2: List[str] = []
         self.file_paths2: List[pathlib.Path] = []
@@ -387,12 +395,29 @@ class Flame:
         self.dist_mat = None
         self.tokenizer_model = None
 
-    def _find_text_files(self, input_path: str) -> List[pathlib.Path]:
+    def _find_text_files(self, input_path: str) -> Tuple[List[pathlib.Path], Optional[pathlib.Path]]:
+        """Resolves an input path to a sorted file list plus the root that reported
+        paths are relative to.
+
+        The input may be a directory (searched recursively for files ending in
+        file_suffix) or a glob pattern such as ./fsdb/DE-LANRWR**/*.htr.txt. For a
+        pattern the pattern itself decides which files are read and file_suffix is
+        ignored, so a pattern like *.htr is not silently emptied by a .txt filter.
+        """
+        if looks_like_pattern(input_path):
+            base = pattern_base(input_path)
+            files = find_pattern_files(input_path)
+            if not files:
+                print(f"Warning: Pattern '{input_path}' matched no files.")
+            return files, base
+
         path = pathlib.Path(input_path)
         if not path.exists() or not path.is_dir():
             print(f"Warning: Input path {path} does not exist or is not a directory. Skipping.")
-            return []
-        return list(path.rglob(f"*{self.args.file_suffix}"))
+            return [], None
+        # Sorted so the corpus order -- and with it the distance matrix -- is
+        # reproducible instead of depending on filesystem traversal order.
+        return sorted(path.rglob(f"*{self.args.file_suffix}")), path
 
     def _read_text_file(self, file_path: pathlib.Path) -> Union[str, None]:
         try:
@@ -402,12 +427,20 @@ class Flame:
             print(f"Warning: Could not read file {file_path}: {e}")
             return None
 
-    def _load_corpus_from_path(self, path_str: str) -> Tuple[List[str], List[pathlib.Path]]:
-        file_paths = self._find_text_files(path_str)
-        print(f"Found {len(file_paths)} files in '{path_str}' with suffix '{self.args.file_suffix}'")
+    def _load_corpus_from_path(self, path_str: str) -> Tuple[List[str], List[pathlib.Path], Optional[pathlib.Path]]:
+        """Loads texts from a directory or glob pattern; also returns the root that the
+        reports name these texts relative to."""
+        file_paths, root = self._find_text_files(path_str)
+        if looks_like_pattern(path_str):
+            print(f"Found {len(file_paths)} files for pattern '{path_str}'")
+        else:
+            print(f"Found {len(file_paths)} files in '{path_str}' with suffix '{self.args.file_suffix}'")
         corpus_data, loaded_paths = [], []
         limit = self.args.keep_texts
-        for file_path in tqdm.tqdm(file_paths, desc=f"Loading files from {os.path.basename(path_str)}"):
+        # For a pattern, name the progress bar after the directory it starts in --
+        # basename would show the glob itself, e.g. "Loading files from *.htr.txt".
+        source = str(pattern_base(path_str)) if looks_like_pattern(path_str) else path_str
+        for file_path in tqdm.tqdm(file_paths, desc=f"Loading files from {os.path.basename(source)}"):
             text = self._read_text_file(file_path)
             if text and len(text) >= self.args.min_text_length:
                 corpus_data.append(text)
@@ -415,14 +448,14 @@ class Flame:
                 if len(corpus_data) >= limit:
                     print(f"Reached limit of {limit} texts for this directory.")
                     break
-        return corpus_data, loaded_paths
+        return corpus_data, loaded_paths, root
 
     def load_corpus(self):
         """Loads files, runs character level mapping layers, and builds BPE vocabulary model."""
-        self.corpus, self.file_paths = self._load_corpus_from_path(self.args.input_path)
+        self.corpus, self.file_paths, self.corpus_root = self._load_corpus_from_path(self.args.input_path)
         if self.is_inter_comparison:
             print("\n--- Two-directory comparison mode activated ---")
-            self.corpus2, self.file_paths2 = self._load_corpus_from_path(self.args.input_path2)
+            self.corpus2, self.file_paths2, self.corpus_root2 = self._load_corpus_from_path(self.args.input_path2)
             if not self.corpus2:
                 print("Warning: Second directory is empty or invalid. Reverting to single-directory mode.")
                 self.is_inter_comparison = False
@@ -893,6 +926,85 @@ def classify_gap(gap1_tokens: List[str], gap2_tokens: List[str], fuzzy_threshold
     return ('variant' if ratio >= fuzzy_threshold else 'bridge'), ratio
 
 
+# --- Input path handling: glob patterns and file identity ---------------------
+# A corpus directory that nests one folder per document (as fsdb does, where every
+# file is called text.htr.txt) makes a bare filename useless as an identifier, so
+# every report labels a text by its path relative to the input root instead. When
+# flat, that relative path IS the filename, so existing outputs are unchanged.
+
+GLOB_METACHARS = '*?['
+
+
+def looks_like_pattern(input_path: str) -> bool:
+    """True when the input path carries glob metacharacters, e.g.
+    ./fsdb/DE-LANRWR**/*.htr.txt -- such a path is a pattern, not a directory."""
+    return bool(input_path) and any(char in input_path for char in GLOB_METACHARS)
+
+
+def split_pattern(pattern: str) -> Tuple[pathlib.Path, str]:
+    """Splits a glob pattern at its first metacharacter-bearing component.
+
+    ./fsdb/DE-LANRWR**/*.htr.txt -> (./fsdb, DE-LANRWR**/*.htr.txt)
+    *.txt                        -> (., *.txt)
+
+    Splitting per component rather than slicing the string keeps patterns whose very
+    first component carries a metacharacter intact.
+    """
+    fixed, rest = [], []
+    for part in pathlib.Path(pattern).parts:
+        if rest or any(char in part for char in GLOB_METACHARS):
+            rest.append(part)
+        else:
+            fixed.append(part)
+    base = pathlib.Path(*fixed) if fixed else pathlib.Path('.')
+    return base, (str(pathlib.Path(*rest)) if rest else '')
+
+
+def pattern_base(pattern: str) -> pathlib.Path:
+    """The leading directory of a pattern that holds no metacharacters -- the root the
+    reported paths are relative to, so files come out as DE-LANRWR001/text.htr.txt."""
+    return split_pattern(pattern)[0]
+
+
+def find_pattern_files(pattern: str) -> List[pathlib.Path]:
+    """Expands a glob pattern to a SORTED list of files.
+
+    Uses glob.glob rather than pathlib.Path.glob because pathlib rejects a pattern such
+    as DE-LANRWR**/*.htr.txt outright ("'**' can only be an entire path component"),
+    while glob -- like the shell -- reads X** as X*. So the pattern a user actually
+    writes for fsdb works here.
+
+    The pattern alone decides which files are read: file_suffix is deliberately not
+    applied on top, or a pattern like *.htr would match nothing once filtered for .txt.
+    """
+    base, rest = split_pattern(pattern)
+    if not rest:
+        print(f"Warning: Pattern '{pattern}' has no wildcard component; nothing to expand.")
+        return []
+    if '**' in pattern and not any(part == '**' for part in pathlib.Path(pattern).parts):
+        # Worth saying out loud: the doubled star is not doing what it looks like.
+        print(f"Note: '**' is only recursive as a standalone path component, so '{pattern}' "
+              f"descends a single level. Use a pattern like '{base}/**/*' for unbounded depth.")
+    try:
+        return sorted(pathlib.Path(match) for match in glob.glob(pattern, recursive=True)
+                      if os.path.isfile(match))
+    except (re.error, OSError) as exc:
+        print(f"Warning: Could not expand pattern '{pattern}': {exc}")
+        return []
+
+
+def display_path(path, root) -> str:
+    """How a text is named in the reports: its path relative to the input root, so
+    that nested corpora with identical filenames stay distinguishable. Falls back to
+    the bare filename when the path lies outside the root."""
+    if root:
+        try:
+            return str(path.relative_to(root))
+        except ValueError:
+            pass
+    return path.name
+
+
 class SimilarityVisualizer:
     detokenizer = TreebankWordDetokenizer()
 
@@ -1266,16 +1378,21 @@ document.addEventListener("DOMContentLoaded", function() {
             unique_pair_id = f"{i}-{j}"
 
             path1 = analyzer.file_paths[i]
+            root1 = analyzer.corpus_root
             tokens1 = display_token_corpus1[i]
 
             path2 = analyzer.file_paths2[j] if analyzer.is_inter_comparison else analyzer.file_paths[j]
+            root2 = analyzer.corpus_root2 if analyzer.is_inter_comparison else analyzer.corpus_root
             tokens2 = display_token_corpus2[j]
 
             year1 = SimilarityVisualizer._extract_year_from_filename(path1.name)
             year2 = SimilarityVisualizer._extract_year_from_filename(path2.name)
 
             if year1 > year2:
+                # The roots travel with the paths, or a swapped pair would be reported
+                # relative to the wrong corpus.
                 path1, path2 = path2, path1
+                root1, root2 = root2, root1
                 tokens1, tokens2 = tokens2, tokens1
 
             h1, h2 = SimilarityVisualizer.highlight_similarities(
@@ -1283,8 +1400,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 max_gap_words=analyzer.args.max_gap_words,
                 fuzz_threshold=analyzer.args.fuzz_threshold
             )
-            f1 = path1.name
-            f2 = path2.name
+            f1 = display_path(path1, root1)
+            f2 = display_path(path2, root2)
             segment = f'<div class="comparison-block" data-score="{score:.4f}" data-pair-id="{unique_pair_id}">' \
                       f'<h3>Comparison: {f1} &harr; {f2}</h3>' \
                       f'<div class="similarity-score">Cosine Similarity: {score:.4f}</div>' \
@@ -1314,11 +1431,11 @@ document.addEventListener("DOMContentLoaded", function() {
         if analyzer.dist_mat is None or not analyzer.file_paths: return
         dense_dist_mat = analyzer.dist_mat.toarray()
         if analyzer.is_inter_comparison:
-            y_labels = [p.name for p in analyzer.file_paths]
-            x_labels = [p.name for p in analyzer.file_paths2]
+            y_labels = [display_path(p, analyzer.corpus_root) for p in analyzer.file_paths]
+            x_labels = [display_path(p, analyzer.corpus_root2) for p in analyzer.file_paths2]
             title = 'Inter-Corpus Text Similarity Heatmap'
         else:
-            y_labels = x_labels = [p.name for p in analyzer.file_paths]
+            y_labels = x_labels = [display_path(p, analyzer.corpus_root) for p in analyzer.file_paths]
             title = 'Text Similarity Heatmap (Intra-Corpus)'
         fig = go.Figure(data=go.Heatmap(z=dense_dist_mat, x=x_labels, y=y_labels, colorscale='Blues', zmin=0.0, zmax=1.0, colorbar=dict(title='Cosine Similarity')))
         fig.update_layout(title_text=title, height=max(600, len(y_labels)*20), width=max(700, len(x_labels)*20))
@@ -1352,12 +1469,14 @@ document.addEventListener("DOMContentLoaded", function() {
                         segment = display_token_corpus1[i][a:a+size]
                         long_segments.add(SimilarityVisualizer.detokenizer.detokenize(segment))
             if analyzer.is_inter_comparison:
-                related_doc_names = sorted([analyzer.file_paths2[j].name for j in related_docs_indices])
+                related_doc_names = sorted([display_path(analyzer.file_paths2[j], analyzer.corpus_root2)
+                                            for j in related_docs_indices])
             else:
-                related_doc_names = sorted([analyzer.file_paths[j].name for j in related_docs_indices])
+                related_doc_names = sorted([display_path(analyzer.file_paths[j], analyzer.corpus_root)
+                                            for j in related_docs_indices])
             long_segments_str = ' | '.join(f'"{s}"' for s in sorted(long_segments, key=len, reverse=True)) or 'None'
             related_docs_str = ', '.join(related_doc_names) or 'None'
-            rows.append(f"{analyzer.file_paths[i].name}\t{len(related_doc_names)}\t{related_docs_str}\t{long_segments_str}\n")
+            rows.append(f"{display_path(analyzer.file_paths[i], analyzer.corpus_root)}\t{len(related_doc_names)}\t{related_docs_str}\t{long_segments_str}\n")
         with open("similarity_summary.tsv", "w", encoding='utf-8') as f: f.writelines(rows)
         print("Generated similarity_summary.tsv")
 
@@ -1378,6 +1497,11 @@ document.addEventListener("DOMContentLoaded", function() {
             tokens1 = display_token_corpus1[i]
             file2_path = analyzer.file_paths2[j] if analyzer.is_inter_comparison else analyzer.file_paths[j]
             tokens2 = display_token_corpus2[j]
+            # Paths relative to each side's own root, so a nested corpus with repeated
+            # filenames stays readable in the report.
+            file1_name = display_path(file1_path, analyzer.corpus_root)
+            file2_name = display_path(file2_path, analyzer.corpus_root2 if analyzer.is_inter_comparison
+                                      else analyzer.corpus_root)
             analysis_tokens1 = [t.lower() for t in tokens1 if t.isalnum()]
             analysis_tokens2 = [t.lower() for t in tokens2 if t.isalnum()]
             if not analysis_tokens1 or not analysis_tokens2: continue
@@ -1392,19 +1516,19 @@ document.addEventListener("DOMContentLoaded", function() {
                     # longer disagree about what is a bridge and what is a spelling variant.
                     kind, _ = classify_gap(gap_tokens1, gap_tokens2, fuzz_threshold)
                     if kind == 'insertion':
-                        for t1 in gap_tokens1: rows.append(f"{file1_path.name}\t{file2_path.name}\tInsertion\t{t1}\t-\n")
-                        for t2 in gap_tokens2: rows.append(f"{file1_path.name}\t{file2_path.name}\tInsertion\t-\t{t2}\n")
+                        for t1 in gap_tokens1: rows.append(f"{file1_name}\t{file2_name}\tInsertion\t{t1}\t-\n")
+                        for t2 in gap_tokens2: rows.append(f"{file1_name}\t{file2_name}\tInsertion\t-\t{t2}\n")
                     elif kind == 'variant' and len(gap_tokens1) == len(gap_tokens2):
                         for t1, t2 in zip(gap_tokens1, gap_tokens2):
-                            rows.append(f"{file1_path.name}\t{file2_path.name}\tOrthographic Variant\t{t1}\t{t2}\n")
+                            rows.append(f"{file1_name}\t{file2_name}\tOrthographic Variant\t{t1}\t{t2}\n")
                     elif kind == 'variant':
-                        rows.append(f"{file1_path.name}\t{file2_path.name}\tOrthographic Variant\t{' '.join(gap_tokens1)}\t{' '.join(gap_tokens2)}\n")
+                        rows.append(f"{file1_name}\t{file2_name}\tOrthographic Variant\t{' '.join(gap_tokens1)}\t{' '.join(gap_tokens2)}\n")
                     elif len(gap_tokens1) == len(gap_tokens2) and len(gap_tokens1) > 0:
                         for t1, t2 in zip(gap_tokens1, gap_tokens2):
-                            rows.append(f"{file1_path.name}\t{file2_path.name}\tDifferent Bridge Word\t{t1}\t{t2}\n")
+                            rows.append(f"{file1_name}\t{file2_name}\tDifferent Bridge Word\t{t1}\t{t2}\n")
                     else:
-                        for t1 in gap_tokens1: rows.append(f"{file1_path.name}\t{file2_path.name}\tDifferent Bridge Word\t{t1}\t-\n")
-                        for t2 in gap_tokens2: rows.append(f"{file1_path.name}\t{file2_path.name}\tDifferent Bridge Word\t-\t{t2}\n")
+                        for t1 in gap_tokens1: rows.append(f"{file1_name}\t{file2_name}\tDifferent Bridge Word\t{t1}\t-\n")
+                        for t2 in gap_tokens2: rows.append(f"{file1_name}\t{file2_name}\tDifferent Bridge Word\t-\t{t2}\n")
                 pos1_analysis, pos2_analysis = a + size, b + size
         with open("linguistic_variations.tsv", "w", encoding='utf-8') as f:
             f.writelines(rows)
