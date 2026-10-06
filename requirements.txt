@@ -2,9 +2,13 @@ fargv
 numpy
 nltk
 plotly
+rapidfuzz
 python-Levenshtein
 scikit-image
 scikit-learn
 scipy
 tqdm
 tokenizers
+# Needed by the default -cluster_linkage louvain. Imported lazily, so its absence
+# only fails when the clustering runs, with an explanatory message.
+networkx
