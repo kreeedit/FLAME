@@ -75,6 +75,26 @@ class FlameGUI(tk.Tk):
         self.create_param_entry(core_params_frame, "file_suffix", "Target File Suffix:", 1, 2)
         self.create_param_entry(core_params_frame, "keep_texts", "Max Documents to Load:", 2, 0)
 
+        self.chk_deduplicate = ttk.Checkbutton(core_params_frame, text="Skip Duplicate Documents (identical text under another filename)", variable=self.params['deduplicate'])
+        self.chk_deduplicate.grid(row=3, column=0, columnspan=4, sticky=tk.W, padx=5, pady=5)
+
+        # These two live here rather than with the other clustering settings on
+        # tab 2: they both shape the IDF, which is derived from the loaded corpus,
+        # so they belong with the corpus settings -- and tab 2 is the tallest page,
+        # where one more row would push the log pane out of the window.
+        ttk.Label(core_params_frame, text="Diplomatic Stopword List (optional, one token per line):").grid(
+            row=4, column=0, columnspan=2, sticky=tk.W, padx=5, pady=4)
+        stopwords_entry = ttk.Entry(core_params_frame, textvariable=self.params['stopwords_file'], width=40)
+        stopwords_entry.grid(row=4, column=2, sticky=tk.EW, padx=5, pady=4)
+        ttk.Button(core_params_frame, text="Clear", width=8,
+                   command=lambda: self.params['stopwords_file'].set('')
+                   ).grid(row=4, column=3, sticky=tk.W, padx=5, pady=4)
+        ttk.Label(core_params_frame, text="Listed tokens score IDF 0, so a formula built only from them gets"
+                                          " Specificity 0 and can be dropped by Min. Core Specificity.",
+                  font=("TkDefaultFont", 9, "italic")).grid(
+            row=5, column=0, columnspan=3, sticky=tk.W, padx=5, pady=2)
+        self.create_param_entry(core_params_frame, "min_core_specificity", "Min. Core Specificity (0 = off):", 6, 0)
+
         threshold_frame = ttk.LabelFrame(tab_core, text="Global Threshold Selection", padding="10")
         threshold_frame.pack(fill=tk.X, pady=5)
         self.create_param_entry(threshold_frame, "similarity_threshold", "Similarity Threshold ('auto' or 0-1):", 0, 0)
@@ -167,6 +187,8 @@ class FlameGUI(tk.Tk):
         alignment_frame.pack(fill=tk.X, pady=5)
         self.create_param_entry(alignment_frame, "fuzz_threshold", "Variant vs. Bridge Threshold (0-1):", 0, 0)
         self.create_param_entry(alignment_frame, "max_gap_words", "Max Bridge Word Length Gap:", 0, 2)
+        self.create_param_entry(alignment_frame, "cluster_threshold", "Cluster Threshold (0-1):", 1, 0)
+        self.create_param_entry(alignment_frame, "cluster_min", "Min. Cluster Size:", 1, 2)
 
         # ==================== TAB 3: AUTO-TUNE & REPORTS ====================
         autotune_frame = ttk.LabelFrame(tab_reports, text="Trial Digging (Autonomous Hyperparameter Auto-Tune)", padding="10")
@@ -194,6 +216,22 @@ class FlameGUI(tk.Tk):
         self.chk_heatmap = ttk.Checkbutton(reports_frame, text="Generate Dynamic Cluster Heatmap HTML", variable=self.params['gen_heatmap'])
         self.chk_heatmap.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
 
+        self.chk_clusters = ttk.Checkbutton(reports_frame, text="Generate Clustering Report (Formula Clusters)", variable=self.params['gen_clusters'])
+        self.chk_clusters.grid(row=3, column=0, sticky=tk.W, padx=20, pady=2)
+
+        # A Combobox rather than a checkbox on purpose: fargv reads a flag's
+        # *presence*, so a True-by-default boolean could never be switched off
+        # from the command line. The pipeline therefore takes an enum.
+        ttk.Label(reports_frame, text="Cluster Linkage:").grid(row=4, column=0, sticky=tk.W, padx=20, pady=2)
+        self.linkage_dropdown = ttk.Combobox(
+            reports_frame, textvariable=self.params['cluster_linkage'],
+            values=['louvain', 'clique', 'union'], state='readonly', width=10)
+        self.linkage_dropdown.grid(row=4, column=1, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(reports_frame, text="louvain = density-based (a template survives its variable slots)."
+                                      "  clique = strict: every formula matches every other one."
+                                      "  union = transitive (KONI's original).",
+                  font=("TkDefaultFont", 9, "italic")).grid(row=5, column=0, columnspan=2, sticky=tk.W, padx=20, pady=2)
+
         self.toggle_report_checkboxes()
         self.toggle_phonetic_entries()
         self.toggle_bigram_entries()
@@ -204,7 +242,7 @@ class FlameGUI(tk.Tk):
 
         results_frame = ttk.LabelFrame(main_frame, text="Direct Action: Open Analysis Results", padding="10")
         results_frame.pack(fill=tk.X, pady=5)
-        for i in range(4): results_frame.columnconfigure(i, weight=1)
+        for i in range(5): results_frame.columnconfigure(i, weight=1)
 
         self.html_button = ttk.Button(results_frame, text="Open Aligned HTML", state=tk.DISABLED, command=lambda: self.open_result_file('text_comparisons_01.html'))
         self.html_button.grid(row=0, column=0, padx=5, pady=5, sticky=tk.EW)
@@ -217,6 +255,9 @@ class FlameGUI(tk.Tk):
 
         self.linguistic_button = ttk.Button(results_frame, text="Open Linguistic Variants TSV", state=tk.DISABLED, command=lambda: self.open_result_file('linguistic_variations.tsv'))
         self.linguistic_button.grid(row=0, column=3, padx=5, pady=5, sticky=tk.EW)
+
+        self.clusters_button = ttk.Button(results_frame, text="Open Clusters Report", state=tk.DISABLED, command=lambda: self.open_result_file('clusters.html'))
+        self.clusters_button.grid(row=0, column=4, padx=5, pady=5, sticky=tk.EW)
 
         log_frame = ttk.LabelFrame(main_frame, text="Pipeline Execution Standard Output Log", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, side=tk.BOTTOM)
@@ -233,6 +274,7 @@ class FlameGUI(tk.Tk):
         self.chk_summary.config(state=new_state)
         self.chk_linguistic.config(state=new_state)
         self.chk_heatmap.config(state=new_state)
+        self.chk_clusters.config(state=new_state)
 
     def toggle_phonetic_entries(self):
         """Enables/disables phonetic reduction entries based on checkbox state."""
@@ -278,6 +320,7 @@ class FlameGUI(tk.Tk):
         self.heatmap_button.config(state=tk.DISABLED)
         self.summary_button.config(state=tk.DISABLED)
         self.linguistic_button.config(state=tk.DISABLED)
+        self.clusters_button.config(state=tk.DISABLED)
 
         self.log_text.configure(state='normal')
         self.log_text.delete(1.0, tk.END)
@@ -297,9 +340,13 @@ class FlameGUI(tk.Tk):
                     args_for_flame[key] = val
                 elif key in ['keep_texts', 'ngram', 'n_out', 'min_text_length',
                              'char_norm_min_freq', 'vocab_min_word_freq',
-                             'max_gap_words', 'auto_tune_sample_size']:
+                             'max_gap_words', 'auto_tune_sample_size',
+                             'cluster_min', 'core_gap_tolerance', 'core_min_tokens',
+                             'core_anchor_window', 'core_max_tokens',
+                             'min_duplicate_tokens']:
                     args_for_flame[key] = int(val)
-                elif key in ['vocab_coverage', 'fuzz_threshold']:
+                elif key in ['vocab_coverage', 'fuzz_threshold', 'cluster_threshold',
+                             'min_core_specificity', 'core_identity_threshold']:
                     args_for_flame[key] = float(val)
                 elif key == 'similarity_threshold' and str(val).lower() != 'auto':
                     args_for_flame[key] = float(val)
@@ -349,15 +396,30 @@ class FlameGUI(tk.Tk):
                 else:
                     print("Skipping interactive HTML generation as per configuration.")
 
+                # Clustering has to run before the TSVs, because both of them carry
+                # a ClusterID column when it does. Its own report file is written
+                # last, once the clustering they consumed is settled.
+                clusters = None
+                if analyzer.args.gen_clusters:
+                    clusters = SimilarityVisualizer.compute_clusters(
+                        analyzer, similarity_threshold=final_threshold,
+                        cluster_threshold=analyzer.args.cluster_threshold,
+                        cluster_min=analyzer.args.cluster_min)
+                else:
+                    print("Skipping clustering as per configuration.")
+
                 if analyzer.args.gen_summary_tsv:
-                    SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                    SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold, clusters=clusters)
                 else:
                     print("Skipping summary TSV generation as per configuration.")
 
                 if analyzer.args.gen_linguistic_tsv:
-                    SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                    SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold, clusters=clusters)
                 else:
                     print("Skipping linguistic TSV variants generation as per configuration.")
+
+                if analyzer.args.gen_clusters:
+                    SimilarityVisualizer.generate_cluster_report(analyzer, clusters)
 
             print("\n--- PIPELINE EXECUTION COMPLETELY FINISHED WITH SUCCESS ---")
             analysis_successful = True
@@ -386,6 +448,8 @@ class FlameGUI(tk.Tk):
             self.summary_button.config(state=tk.NORMAL)
         if self.params['gen_linguistic_tsv'].get() and os.path.exists('linguistic_variations.tsv'):
             self.linguistic_button.config(state=tk.NORMAL)
+        if self.params['gen_clusters'].get() and os.path.exists('clusters.html'):
+            self.clusters_button.config(state=tk.NORMAL)
 
     def write(self, text):
         self.log_queue.put(text)

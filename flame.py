@@ -1,13 +1,17 @@
 import numpy as np
 import glob
+import hashlib
+import math
 import os
 import pathlib
 import re
+import sys
 import unicodedata
+from datetime import datetime
 import fargv
 import tqdm
 from rapidfuzz import fuzz
-from itertools import combinations
+from itertools import chain, combinations
 from difflib import SequenceMatcher
 from collections import defaultdict, Counter
 from abc import ABC, abstractmethod
@@ -25,6 +29,12 @@ from tokenizers import Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
 from tokenizers.pre_tokenizers import Whitespace
+import flame_clustering
+
+# The command line as launched. fargv consumes sys.argv while parsing it, so the
+# report's "reproduce with" line has to be copied out before main() runs.
+_LAUNCH_ARGV = list(sys.argv)
+
 
 def fast_str_to_numpy(s: str, dtype=np.uint32) -> np.ndarray:
     """Efficiently converts a string to a NumPy array via byte encoding.
@@ -276,6 +286,12 @@ DEFAULT_PARAMS = {
     'input_path2': '',
     'file_suffix': '.txt',
     'keep_texts': 10000,
+    # Off by default: whether two identical files are two documents or one is a
+    # scholarly decision, not a technical one. Corpora assembled from editions and
+    # archival copies routinely hold the same charter under several names (a
+    # shelfmark, an edition, and a "(1)" re-download), and leaving the flag off
+    # reproduces exactly what is on disk.
+    'deduplicate': False,
     'ngram': 6,
     'n_out': 1,
     'min_text_length': 150,
@@ -300,11 +316,119 @@ DEFAULT_PARAMS = {
     'max_gap_words': 5,
     'auto_tune': False,
     'auto_tune_sample_size': 30,
+    # Clustering (legal-formula): groups the surviving pairs by the formula
+    # core they share. cluster_threshold is the similarity two CORES must reach to
+    # merge, on the same 0-1 scale as fuzz_threshold but a different quantity --
+    # fuzz_threshold judges the words between two matches, this judges whole
+    # formulas against each other, so it is calibrated separately (KONI's default
+    # was 0.85). Measured on the MOM corpus at 0.85 vs 0.70: a papal privilege
+    # template whose recipients differ (one abbey against one hospital) had been
+    # split into four clusters of 24, 12, 6 and 2 charters; at 0.70 those four
+    # merge into one 49-charter cluster, and that was the only merge among the
+    # clusters of four or more members -- apart from a second papal formula
+    # ('militanti ecclesie'). 0.70 finds 40 clusters against 34, adds no
+    # near-duplicate (11 either way, the section is judged on coverage, not on
+    # this threshold), and 0.65 already over-merges (a 70-charter cluster with
+    # 0.44-0.50 cohesion), so 0.70 is the loose end of what still separates.
+    'cluster_threshold': 0.70,
+    'cluster_min': 2,
+    # What a cluster IS. 'louvain' (default) looks for cores that are denser
+    # among themselves than with the rest, which is what keeps one formula with
+    # variable slots in one piece; 'clique' splits each group into maximal
+    # cliques, so every core in a cluster agrees with every other; 'union' keeps
+    # KONI's connected components, which also merge A with C when only A~B and
+    # B~C hold. A string rather than a boolean because fargv treats a boolean as
+    # a presence switch: a True-defaulted flag could never be turned back off
+    # from the command line, only from the GUI.
+    'cluster_linkage': 'louvain',
+    # How far a formula's variable slot may open before the core is cut in two:
+    # the gapped alignment (flame_clustering.align_core) chains matching runs
+    # across gaps of at most this many tokens on either side. Eight spans the
+    # widest slot measured in the corpus (a name, a place, a case ending) without
+    # bridging the distance between two different formulas.
+    'core_gap_tolerance': 8,
+    # Shortest window (its shorter side) that still counts as a formula; below
+    # it the pair falls back to the strict contiguous core.
+    'core_min_tokens': 12,
+    # Where a formula is looked for: the performative verbs that carry a charter's
+    # legal act (donamus, contulimus, confirmamus...). Comma-separated *stems*,
+    # prefix-matched against the folded tokens, because the ending is what varies
+    # (donamus / donauimus / donauerunt) and folding keeps the corpus's u-for-v
+    # spelling (contulimus, uendidimus). Without anchoring the alignment maximises
+    # matched tokens, and the longest shared run in a mediaeval charter is the
+    # protocol -- measured on the MOM corpus, no core came out below 56 tokens and
+    # 28 of 40 clusters opened on a protocol phrase -- so the verbs are what tell
+    # the aligner where the act is. A pair whose shared text carries none keeps
+    # the unanchored window, which the report counts. Empty (or `none`) switches
+    # anchoring off and gives back the pre-anchor clustering word for word;
+    # `-core_anchors=` does the same from the CLI (the `=` form: fargv crashes on
+    # a bare empty argument).
+    #
+    # There is no built-in list, and that is a measured decision rather than an
+    # oversight. A hand-written Latin-and-German list was tried and is gone
+    # because it does not hold: on MOM, 11 of its 38 stems (vendidimus, vendimus,
+    # emancipauimus, concessimus, promittimus, assignauimus, commutauimus,
+    # verleihen, verkaufen, ubergeben, ...) do not occur in the corpus at all,
+    # and 153 of the 441 admitted pairs (34.7%) share no word of it, so a third
+    # of the corpus fell back to the unanchored window on the very corpus the
+    # list was written for.
+    #
+    # Discovering the verbs from the corpus was then tried and did *not* work,
+    # and the measurements are why the file ships without a list rather than
+    # with a worse one:
+    #   * document frequency, occupancy, context entropy, positional spread, the
+    #     IDF of a token's neighbours, and every conjunction of them were ranked
+    #     against the verbs the hand list did reach: the best rule selected 8676
+    #     tokens to find 45 verbs (precision 0.5%, recall 34.9%). The reason is
+    #     that the verbs are 0.3% of the recurring vocabulary and statistically
+    #     ordinary: `contulimus` has df 416 beside `iuris` at 1093, in a band
+    #     holding 1241 tokens of which 16 are verbs.
+    #   * phrase-level rarity (k-gram document frequency) does not locate the act
+    #     either: ranked within a pair's shared span it puts the act at relative
+    #     rank 0.467 -- chance.
+    #   * rarity as the *objective* is the wrong sign: mean unigram IDF, summed
+    #     IDF, rarest-word IDF and phrase DF all anti-select the act (median
+    #     relative rank 0.57-0.70), because the act formula is shared by its act
+    #     family while the average shared passage is a one-off list of names.
+    #   * morphology is the signal a reader uses, and it is not separable on the
+    #     surface: handed the ending inventory of the known verbs as an oracle,
+    #     `-mus/-nt/-it` still selects 2215 tokens to find 50 verbs (2.3%).
+    # Identifying the performative verb is a lexical or morphological task, so
+    # the resource is per-corpus input, not a constant in this file.
+    'core_anchors': '',
+    # How far the window may extend past the anchor, in tokens, on either side.
+    # Fifteen is the length of the act's habitual surroundings (the operative
+    # clause plus the sanctio that follows it) without reaching the arenga.
+    'core_anchor_window': 15,
+    # Hard ceiling on the reported window, in tokens. The legal act is short --
+    # a dispositio runs 15-40 words -- while a protocol panel runs to 200, so
+    # without a ceiling a long generic overlap still outvotes a short specific
+    # one. 0 leaves the window uncapped (the pre-anchor behaviour).
+    'core_max_tokens': 50,
+    # A near-duplicate charter is reported separately from a shared formula when
+    # its shared window is at least this many words AND covers at least
+    # MAX_CORE_FRACTION of the shorter charter. Both are needed: the share alone
+    # calls a short charter duplicate when its text is mostly one formula.
+    'min_duplicate_tokens': 400,
+    # Minimum gap-only identity (2*matched/(len_a+len_b)) for an aligned core to
+    # be accepted as a formula; below it the pair falls back to the strict
+    # contiguous core. 0.0 accepts every window the aligner returns.
+    'core_identity_threshold': 0.0,
+    # Drops clusters whose specificity (core length x mean IDF of its words) is
+    # below this. 0.0 keeps every cluster: the specificity is reported either way,
+    # and whether a widespread panel counts as a finding is a scholarly call.
+    'min_core_specificity': 0.0,
+    # Optional file of tokens (one per line, '#' comments) whose IDF is forced to
+    # zero when specificity is measured -- a hand-curated diplomatic stop list.
+    # Empty by default: the corpus's own document frequencies already know that
+    # 'salutem' and 'benedictionem' are everywhere.
+    'stopwords_file': '',
     'no_reports': False,
     'gen_comparison_html': True,
     'gen_summary_tsv': True,
     'gen_linguistic_tsv': True,
     'gen_heatmap': True,
+    'gen_clusters': True,
 }
 
 def parse_phonetic_rules(rules_str: str) -> Dict[str, str]:
@@ -375,6 +499,11 @@ class Flame:
     """Main pipeline execution for medieval formulaic language alignment."""
     def __init__(self, args, tmp_dir: str = '.'):
         self.args = args
+        # What loading the corpus skipped, filled in by _load_corpus_from_path.
+        # Empty rather than absent so the report can read it even when a corpus
+        # was never loaded (a direct caller, a test).
+        self.load_stats: Dict[str, int] = {}
+        self.load_stats2: Dict[str, int] = {}
         # The second input may be a directory or a glob pattern, so a pattern must not
         # be mistaken for "no second corpus".
         self.is_inter_comparison = bool(self.args.input_path2 and
@@ -427,35 +556,119 @@ class Flame:
             print(f"Warning: Could not read file {file_path}: {e}")
             return None
 
-    def _load_corpus_from_path(self, path_str: str) -> Tuple[List[str], List[pathlib.Path], Optional[pathlib.Path]]:
+    def _load_corpus_from_path(self, path_str: str
+                               ) -> Tuple[List[str], List[pathlib.Path], Optional[pathlib.Path], Dict[str, int]]:
         """Loads texts from a directory or glob pattern; also returns the root that the
-        reports name these texts relative to."""
+        reports name these texts relative to, and what the loading skipped.
+
+        The counts come back rather than only being printed because the cluster
+        report has to state its own input: a reader who was handed the HTML and
+        nothing else cannot tell a 12 000-charter corpus from a 400-charter one,
+        and "how many charters was this computed on" is the first thing they ask.
+        """
         file_paths, root = self._find_text_files(path_str)
         if looks_like_pattern(path_str):
             print(f"Found {len(file_paths)} files for pattern '{path_str}'")
         else:
             print(f"Found {len(file_paths)} files in '{path_str}' with suffix '{self.args.file_suffix}'")
         corpus_data, loaded_paths = [], []
+        skipped_short = 0
+        # Content hash -> the surviving file and its position in corpus_data, so an
+        # identical file can be recognised no matter what it is called. Only
+        # populated when deduplicating.
+        seen_texts: Dict[str, Tuple[pathlib.Path, int]] = {}
+        # key -> the files skipped for holding that key's text. A file lands here
+        # either because it lost to the current keeper or because it was the keeper
+        # and a shorter-named copy displaced it; either way exactly one entry is
+        # added per skipped file, so the grouped report stays truthful.
+        duplicates: Dict[str, List[pathlib.Path]] = {}
         limit = self.args.keep_texts
         # For a pattern, name the progress bar after the directory it starts in --
         # basename would show the glob itself, e.g. "Loading files from *.htr.txt".
         source = str(pattern_base(path_str)) if looks_like_pattern(path_str) else path_str
+        limit_reached = False
         for file_path in tqdm.tqdm(file_paths, desc=f"Loading files from {os.path.basename(source)}"):
             text = self._read_text_file(file_path)
-            if text and len(text) >= self.args.min_text_length:
-                corpus_data.append(text)
-                loaded_paths.append(file_path)
-                if len(corpus_data) >= limit:
-                    print(f"Reached limit of {limit} texts for this directory.")
-                    break
-        return corpus_data, loaded_paths, root
+            if not text or len(text) < self.args.min_text_length:
+                skipped_short += 1
+                continue
+            if self.args.deduplicate:
+                # Hashed on the text as loaded, not on the raw bytes: two files
+                # differing only in whitespace are the same document to every part
+                # of the pipeline downstream, since that is the string the engine
+                # tokenizes.
+                key = hashlib.sha1(text.encode('utf-8')).hexdigest()
+                kept = seen_texts.get(key)
+                if kept is not None:
+                    kept_path, kept_index = kept
+                    # Among identical files the shorter name wins. Corpora assemble
+                    # the same charter as "X.txt", "X (1).txt" and a long shelfmark,
+                    # and the re-download -- the one name nobody wants to keep -- is
+                    # never the shortest. The text is identical to the letter, so a
+                    # swap changes only the name the reports use: the document keeps
+                    # its position, and with it the distance matrix row it had.
+                    if len(file_path.name) < len(kept_path.name):
+                        duplicates.setdefault(key, []).append(kept_path)
+                        loaded_paths[kept_index] = file_path
+                        seen_texts[key] = (file_path, kept_index)
+                    else:
+                        duplicates.setdefault(key, []).append(file_path)
+                    continue
+                seen_texts[key] = (file_path, len(corpus_data))
+            corpus_data.append(text)
+            loaded_paths.append(file_path)
+            if len(corpus_data) >= limit:
+                print(f"Reached limit of {limit} texts for this directory.")
+                limit_reached = True
+                break
+        if self.args.deduplicate:
+            self._report_duplicates(duplicates, seen_texts, len(file_paths))
+        stats = {
+            "found": len(file_paths),
+            "loaded": len(corpus_data),
+            "short": skipped_short,
+            "duplicate": sum(len(paths) for paths in duplicates.values()),
+            "limit_reached": limit_reached,
+        }
+        return corpus_data, loaded_paths, root, stats
+
+    @staticmethod
+    def _report_duplicates(duplicates: Dict[str, List[pathlib.Path]],
+                           seen_texts: Dict[str, Tuple[pathlib.Path, int]],
+                           scanned: int) -> None:
+        """Prints what deduplication dropped, naming both sides of every match.
+
+        The full list is printed rather than a summary count on purpose: a corpus
+        that silently loses a third of its files to a wrong flag would be a nasty
+        surprise, and only the names show whether the dropped ones were true
+        repeats (an edition and its archival copy) or something unexpected.
+
+        Grouped by content, not listed pair by pair: the name that survives can
+        change while the scan runs (a later, shorter-named copy of the same text
+        takes its place), so a per-duplicate "same text as X" line could name a
+        file that was itself dropped a moment later. Printing the group with its
+        one survivor says the same thing without that trap.
+        """
+        skipped = sum(len(paths) for paths in duplicates.values())
+        print(f"\n--- Deduplication: {skipped} of {scanned} file(s) skipped as repeats ---")
+        for key, dropped in duplicates.items():
+            kept = seen_texts[key][0]
+            print(f"'{kept}' -- {len(dropped) + 1} file(s) hold this text; kept this one, skipped:")
+            for path in dropped:
+                print(f"    {path}")
+        if skipped:
+            print(f"Kept {scanned - skipped} file(s) out of {scanned}.")
+        else:
+            print("No two files held the same text.")
 
     def load_corpus(self):
         """Loads files, runs character level mapping layers, and builds BPE vocabulary model."""
-        self.corpus, self.file_paths, self.corpus_root = self._load_corpus_from_path(self.args.input_path)
+        self.corpus, self.file_paths, self.corpus_root, self.load_stats = \
+            self._load_corpus_from_path(self.args.input_path)
         if self.is_inter_comparison:
             print("\n--- Two-directory comparison mode activated ---")
-            self.corpus2, self.file_paths2, self.corpus_root2 = self._load_corpus_from_path(self.args.input_path2)
+            self.corpus2, self.file_paths2, self.corpus_root2, self.load_stats2 = \
+                self._load_corpus_from_path(self.args.input_path2)
             if not self.corpus2:
                 print("Warning: Second directory is empty or invalid. Reverting to single-directory mode.")
                 self.is_inter_comparison = False
@@ -1005,6 +1218,81 @@ def display_path(path, root) -> str:
     return path.name
 
 
+def load_stopwords(path: str) -> set:
+    """Tokens listed in `path` (one per line, '#' comments) whose IDF counts as zero.
+
+    A hand-written list is a *superset* of what the corpus already knows, and it
+    is only useful for words the corpus is too small to have measured as common --
+    a two-hundred-charter sample does not yet know that 'benedictionem' is
+    everywhere. The list only ever lowers a core's specificity; it never removes a
+    word from a core, so two clusters that share a formula stay comparable.
+    """
+    if not path:
+        return set()
+    try:
+        with open(path, encoding="utf-8") as f:
+            return {line.split('#')[0].strip().lower() for line in f
+                    if line.split('#')[0].strip()}
+    except OSError as error:
+        print(f"Warning: could not read the stop-word file '{path}' ({error}); "
+              f"specificity is measured on the corpus's own document frequencies alone.")
+        return set()
+
+
+def _token_span(positions: List[int], start: int, size: int) -> Tuple[int, int]:
+    """Maps a core's position among a document's *kept* tokens to a token range.
+
+    `core_sequence` counts in the filtered token space (punctuation dropped), the
+    report highlights in the tokenizer's own space, and this is the conversion
+    between the two. An empty run maps to an empty range, which `render_tokens`
+    then marks nowhere -- the honest answer for a core that was not found.
+    """
+    window = positions[start:start + size]
+    return (window[0], window[-1] + 1) if window else (0, 0)
+
+
+def _fold_documents(display_token_corpus: List[List[str]]
+                    ) -> Tuple[List[List[int]], List[List[Tuple[str, str]]]]:
+    """Folds every document once: (kept-token positions, (display, folded) pairs).
+
+    Split out of `compute_clusters` because the two have to agree token for token
+    -- the positions are what put the highlight back on the right words -- and
+    deriving one from the other's filtered output is the only way to guarantee
+    that.
+    """
+    positions: List[List[int]] = []
+    folded: List[List[Tuple[str, str]]] = []
+    for tokens in display_token_corpus:
+        entries = list(flame_clustering.iter_token_pairs(tokens, fold_for_compare))
+        positions.append([index for index, _display, _folded in entries])
+        folded.append([(display, folded_token) for _index, display, folded_token in entries])
+    return positions, folded
+
+
+def _add_span(doc_texts: Dict[str, Dict[str, object]], name: str, tokens: List[str],
+              positions: List[int], span: Tuple[int, int]) -> None:
+    """Records that `name` carries the core at `span`, for the report's read view.
+
+    Tokens are kept only for the documents that a cluster actually names, and only
+    once per document: the same charter can appear in several clusters, but within
+    one cluster its text is one string with perhaps several marked runs.
+    """
+    entry = doc_texts.setdefault(name, {"tokens": tokens, "spans": []})
+    entry["spans"].append(_token_span(positions, span[0], span[1]))
+
+
+def _text_key(text: str) -> str:
+    """A short, stable key for a document's text, used to count distinct texts.
+
+    Deliberately the same normalization the loader applies (`_read_text_file`), so
+    two files that differ only in whitespace key the same -- they are one document
+    to the engine, whatever the reports call them. This is only a *reporting*
+    identity: the corpus still holds both files, and both are compared, unless
+    deduplication is switched on.
+    """
+    return hashlib.sha1(' '.join(text.split()).encode('utf-8')).hexdigest()
+
+
 class SimilarityVisualizer:
     detokenizer = TreebankWordDetokenizer()
 
@@ -1443,7 +1731,424 @@ document.addEventListener("DOMContentLoaded", function() {
         print("Generated similarity_heatmap.html")
 
     @staticmethod
-    def generate_similarity_summary_tsv(analyzer, similarity_threshold: float):
+    def compute_clusters(analyzer, similarity_threshold: float,
+                               cluster_threshold: float, cluster_min: int) -> Optional[dict]:
+        """Groups the surviving pairs by the legal formula they share (see flame_clustering).
+
+        Returns a dict the report generator and the TSV generators both read, or
+        None when there is nothing to cluster. Kept separate from the report
+        generation because the ClusterID column in the summary TSVs has to be
+        known *before* those files are written, while the cluster report itself is
+        written afterwards.
+
+        The tricky part is naming. In a self-comparison both ends of a pair index
+        the same corpus, so the two sides collapse; comparing two corpora, they
+        are different documents and must never be merged -- a ClusterID list for
+        a query document that quietly included reference-side indices would point
+        at the wrong charter.
+        """
+        # Coerced at the door, not at each use: every caller hands these in from
+        # somewhere that may hold a string (the GUI keeps one tk.StringVar per
+        # parameter, so an untouched spin box arrives as "0.85"), and a single
+        # un-coerced path downstream crashes the whole run at report time --
+        # after the clustering has already been computed.
+        similarity_threshold = float(similarity_threshold)
+        cluster_threshold = float(cluster_threshold)
+        cluster_min = int(cluster_min)
+        if analyzer.dist_mat is None or not analyzer.corpus:
+            return None
+        display_token_corpus1 = [word_tokenize(text) for text in analyzer.corpus]
+        display_token_corpus2 = [word_tokenize(text) for text in (analyzer.corpus2 or analyzer.corpus)]
+        if analyzer.is_inter_comparison:
+            doc_names1 = [display_path(p, analyzer.corpus_root) for p in analyzer.file_paths]
+            doc_names2 = [display_path(p, analyzer.corpus_root2) for p in analyzer.file_paths2]
+            sides1, sides2 = (0,), (1,)
+        else:
+            doc_names1 = doc_names2 = [display_path(p, analyzer.corpus_root) for p in analyzer.file_paths]
+            sides1 = sides2 = (0, 1)
+
+        # Content key per document, so the report can say how many *distinct texts*
+        # stand behind a cluster's document list. A corpus that holds one charter
+        # under three names (a shelfmark, an edition and a re-download) turns a
+        # single comparison into nine pairs, and the pair count alone hides that.
+        # Hashed rather than kept as strings: the same key is needed for both sides
+        # of every pair, and holding 8000 charter texts twice over is wasteful.
+        text_key1 = [_text_key(t) for t in analyzer.corpus]
+        text_key2 = [_text_key(t) for t in analyzer.corpus2] if analyzer.is_inter_comparison else text_key1
+
+        # Folded tokens are built once per document, not once per pair: a document
+        # sits in many pairs, and folding is the expensive part of the signature.
+        # The kept tokens' positions in the tokenizer's own token list travel
+        # alongside, because the report marks the core inside the real text and
+        # the core is reported in the filtered token space.
+        positions1, folded1 = _fold_documents(display_token_corpus1)
+        if analyzer.is_inter_comparison:
+            positions2, folded2 = _fold_documents(display_token_corpus2)
+        else:
+            positions2, folded2 = positions1, folded1
+
+        # How distinctive is a core? The corpus's own document frequencies answer
+        # it, and they are free here: `folded1`/`folded2` already hold every
+        # document's folded tokens, so this is one pass over data that had to be
+        # built anyway. A core of forty ordinary charter words scores far below a
+        # core of forty rare ones, which is the difference between "this formula is
+        # everywhere in this corpus" and "these two charters borrowed from each
+        # other". See _record_specificity.
+        doc_freq: Counter = Counter()
+        corpus_docs = list(folded1) + (list(folded2) if analyzer.is_inter_comparison else [])
+        for token_pairs in corpus_docs:
+            doc_freq.update({folded for _display, folded in token_pairs})
+        stopwords = load_stopwords(getattr(analyzer.args, 'stopwords_file', ''))
+        total_docs = max(1, len(corpus_docs))
+
+        def idf(token: str) -> float:
+            # Smoothed and non-negative, so a word merely shared by every document
+            # scores zero rather than negative. A negative IDF would make a long
+            # and utterly generic core score *lower* than a short generic one,
+            # which reads as a bug even though the ordering is defensible.
+            return 0.0 if token in stopwords else math.log((1 + total_docs) / (1 + doc_freq[token]))
+
+        # The performative verbs, as folded stems, and empty unless the caller
+        # supplies them -- the measured reason there is no built-in list is at
+        # `core_anchors` in DEFAULT_PARAMS. Empty (or `none`, the only sentinel a
+        # comma-separated list can carry) switches anchoring off and gives back
+        # the pre-anchor clustering word for word.
+        core_anchors = tuple(
+            stem.strip() for stem in str(getattr(analyzer.args, 'core_anchors', '') or '').split(',')
+            if stem.strip() and stem.strip().lower() != 'none')
+
+        dist_mat_coo = analyzer.dist_mat.tocoo()
+        pair_docs: List[Tuple[int, int]] = []
+        pair_scores: List[float] = []
+        sigs: List[str] = []
+        cores: List[Tuple[str, str]] = []
+        # The window each pair's core covers in BOTH documents of the pair, so
+        # the read-through view can mark the formula where each charter writes
+        # it. Both spans come from one alignment (see align_core), rather than
+        # from a second search from the other side.
+        core_spans: List[Tuple[Tuple[int, int], Tuple[int, int]]] = []
+        # How much the pair shares over the *whole* alignment, before the anchor
+        # ceiling narrowed the reported window. The near-duplicate test asks how
+        # much of the shorter charter two documents cover, and a 50-token formula
+        # window cannot answer that -- measuring it from the window would empty
+        # the near-duplicate section (its threshold is 400 shared words).
+        core_overlaps: List[int] = []
+        core_anchors_used: List[str] = []
+        core_identities: List[float] = []
+        n_degraded = 0
+        n_anchored = 0
+        for i, j, score in zip(dist_mat_coo.row, dist_mat_coo.col, dist_mat_coo.data):
+            if score < similarity_threshold: continue
+            if not analyzer.is_inter_comparison and i >= j: continue
+            alignment = flame_clustering.align_core(
+                folded1[i], folded2[j],
+                gap_tolerance=int(getattr(analyzer.args, 'core_gap_tolerance', 8) or 8),
+                min_tokens=int(getattr(analyzer.args, 'core_min_tokens', 12) or 12),
+                identity_floor=float(getattr(analyzer.args, 'core_identity_threshold', 0.0) or 0.0),
+                anchors=core_anchors,
+                anchor_window=int(getattr(analyzer.args, 'core_anchor_window', 15)),
+                # Not `or`-guarded: 0 means "no ceiling" here, and `0 or 50` would
+                # silently put the ceiling back.
+                max_tokens=int(getattr(analyzer.args, 'core_max_tokens', 50)),
+                idf=idf)
+            core_folded, core_display = alignment.folded, alignment.display
+            if not core_folded:
+                # Two texts can clear the similarity threshold on scattered short
+                # matches yet share no run of words that chains into a formula --
+                # there is then nothing to cluster on. Letting them through as an
+                # empty signature would put every such pair into one giant
+                # "shared nothing" cluster, which is the exact opposite of the
+                # answer.
+                continue
+            pair_docs.append((int(i), int(j)))
+            pair_scores.append(float(score))
+            sigs.append(core_folded)
+            cores.append((core_display, core_folded))
+            core_spans.append(((alignment.start, alignment.size),
+                               (alignment.start2, alignment.size2)))
+            core_overlaps.append(alignment.overlap)
+            core_anchors_used.append(alignment.anchor)
+            core_identities.append(alignment.identity)
+            if alignment.degraded:
+                n_degraded += 1
+            if alignment.anchor:
+                n_anchored += 1
+
+        # The duplicate rule the report already judges *clusters* by, applied to
+        # single pairs and handed to the clustering as forced edges. Clustering
+        # runs on the cores, and a core narrowed to the legal act matches nothing
+        # even between two copies of one charter: measured on the MOM corpus,
+        # anchoring dropped six charter documents that shared 400+ words out of
+        # the report entirely, their pair left alone below `cluster_min`. The rule
+        # reads the pair's whole shared span, which no window narrows, so it -- not
+        # the core's similarity -- decides who is a copy of whom.
+        forced_groups = flame_clustering.duplicate_groups(
+            pair_docs, core_overlaps, [len(f) for f in folded1], [len(f) for f in folded2],
+            max_core_fraction=flame_clustering.MAX_CORE_FRACTION,
+            min_duplicate_tokens=int(getattr(analyzer.args, 'min_duplicate_tokens', 400) or 400))
+        # NB: the per-cluster verdict below re-reads the same two values (see
+        # `max_core_fraction` / `min_dup_tokens`); they are parameters, so the two
+        # call sites have to agree on where they come from.
+        grouped = flame_clustering.cluster_pairs(
+            sigs, threshold=cluster_threshold, min_size=max(2, int(cluster_min)),
+            linkage=getattr(analyzer.args, 'cluster_linkage', 'louvain'),
+            forced_groups=forced_groups)
+
+        # Specificity is measured on the reference core, the same one the report
+        # prints, and computed before any filtering so the number shown and the
+        # number filtered on can never be two different things.
+        clusters = []
+        for cluster in grouped["clusters"]:
+            core_tokens = cores[cluster["members"][0]][1].split()
+            distinct_tokens = sorted(set(core_tokens))
+            mean_idf = (sum(idf(t) for t in distinct_tokens) / len(distinct_tokens)) if distinct_tokens else 0.0
+            cluster["core_tokens"] = len(core_tokens)
+            cluster["mean_idf"] = mean_idf
+            cluster["specificity"] = len(core_tokens) * mean_idf
+            clusters.append(cluster)
+
+        min_specificity = float(getattr(analyzer.args, 'min_core_specificity', 0.0) or 0.0)
+        # The near-duplicate rule, read once: `duplicate_groups` above and the
+        # per-cluster verdict below have to be the same rule, or a pair could be
+        # wired into the graph as a copy and then have its cluster called a
+        # formula.
+        max_core_fraction = flame_clustering.MAX_CORE_FRACTION
+        min_dup_tokens = int(getattr(analyzer.args, 'min_duplicate_tokens', 400) or 400)
+        if min_specificity > 0:
+            kept = [c for c in clusters if c["specificity"] >= min_specificity]
+            print(f"Specificity filter: {len(clusters) - len(kept)} of {len(clusters)} cluster(s) "
+                  f"dropped below {min_specificity:.1f}.")
+            # Renumbered and re-indexed before anything downstream reads them: the
+            # ClusterID column of both summary TSVs is built from these ids, and a
+            # gap in the numbering would make them point at dropped clusters.
+            clusters = kept
+            remap = {cluster["id"]: cluster_id for cluster_id, cluster in enumerate(clusters)}
+            for cluster_id, cluster in enumerate(clusters):
+                cluster["id"] = cluster_id
+                # `shared_with` holds ids from before the filter, so it has to be
+                # translated too: a dropped neighbour must vanish rather than point
+                # at whichever cluster inherited its number.
+                cluster["shared_with"] = sorted({remap[cid] for cid in cluster.get("shared_with", [])
+                                                 if cid in remap})
+            grouped["pair_cluster"] = [-1] * len(pair_docs)
+            for cluster in clusters:
+                for pair_index in cluster["members"]:
+                    grouped["pair_cluster"][pair_index] = cluster["id"]
+            grouped["clusters"] = clusters
+            grouped["stats"]["n_clusters"] = len(clusters)
+            grouped["stats"]["n_clustered"] = sum(c["size"] for c in clusters)
+            grouped["stats"]["n_singletons"] = len(pair_docs) - grouped["stats"]["n_clustered"]
+
+        records = []
+        for cluster in clusters:
+            docs = [doc for doc in flame_clustering.cluster_documents([cluster], pair_docs, sides1)[0]]
+            # An inter-corpus cluster spans both corpora, so its document list has
+            # to name the reference side too; in a self-comparison sides1 already
+            # covered both ends and this second pass would repeat itself.
+            doc_labels = [doc_names1[d] for d in docs]
+            keys = {text_key1[d] for d in docs}
+            if analyzer.is_inter_comparison:
+                ref_docs = flame_clustering.cluster_documents([cluster], pair_docs, sides2)[0]
+                doc_labels += [doc_names2[d] for d in ref_docs]
+                keys |= {text_key2[d] for d in ref_docs}
+            members = []
+            doc_texts: Dict[str, Dict[str, object]] = {}
+            for pair_index in cluster["members"]:
+                i, j = pair_docs[pair_index]
+                name1 = doc_names1[i]
+                name2 = doc_names2[j] if analyzer.is_inter_comparison else doc_names1[j]
+                members.append((name1, name2, pair_scores[pair_index]))
+                # The alignment already carries the formula's window in both
+                # documents, so each charter is marked where it writes the
+                # formula itself.
+                span1, span2 = core_spans[pair_index]
+                _add_span(doc_texts, name1, display_token_corpus1[i], positions1[i], span1)
+                if span2[1]:
+                    _add_span(doc_texts, name2, display_token_corpus2[j], positions2[j], span2)
+            reference = cores[cluster["members"][0]]
+            # How much of the shorter charter the core's window covers. A formula
+            # is a *part* of a charter; when the window swallows most of one, the
+            # cluster is not a shared formula but a charter copied out again, and
+            # the report says so instead of listing it as a formula find (see
+            # flame_clustering.MAX_CORE_FRACTION).
+            coverage = 0.0
+            shared_tokens = 0
+            # Both numbers have to come from ONE pair. Taking the two maxima
+            # independently lets a short overlap on a short charter supply the
+            # fraction and a long overlap on a long one the word count -- a
+            # cluster then reads as a copy although no pair in it is one, and the
+            # card's own numbers contradict its `Kind`. `min_duplicate_tokens`
+            # and `MAX_CORE_FRACTION` are read from `analyzer.args` so the verdict
+            # here and the report's column can never be two different rules.
+            dup_coverage = 0.0
+            dup_shared = 0
+            for pair_index in cluster["members"]:
+                i, j = pair_docs[pair_index]
+                # The *overlap*, not the reported window: anchoring narrows the
+                # window to the formula (at most core_max_tokens), and a copy of
+                # a whole charter shares far more than that. Measuring the
+                # duplicate test on the window would put every near-duplicate
+                # below the 400-word threshold and quietly move the 1721-word
+                # copies back into the formula network.
+                shared = core_overlaps[pair_index]
+                shorter = min(len(folded1[i]), len(folded2[j]))
+                if not shared or not shorter:
+                    continue
+                if shared > shared_tokens:
+                    # The widest overlap the cluster has, which is what the card
+                    # shows for a formula.
+                    coverage, shared_tokens = shared / shorter, shared
+                if (shared >= min_dup_tokens and shared / shorter >= max_core_fraction
+                        and shared > dup_shared):
+                    # ...and the widest overlap that is a copy on its own terms.
+                    dup_coverage, dup_shared = shared / shorter, shared
+            if dup_shared:
+                coverage, shared_tokens = dup_coverage, dup_shared
+            records.append({
+                "id": cluster["id"], "size": cluster["size"],
+                "core_display": reference[0], "core_folded": reference[1],
+                # The performative verb the reference pair's window was seeded on:
+                # the one-word answer to "which legal act is this cluster?", which
+                # is what a diplomatist reads the cluster for. Empty when the
+                # pair's shared text carries none (the unanchored fallback).
+                "anchor": core_anchors_used[cluster["members"][0]],
+                "documents": doc_labels, "distinct_texts": len(keys),
+                "members": members, "coverage": coverage, "shared_tokens": shared_tokens,
+                # The per-pair core ratio is measured against the cluster's own
+                # reference core, which is what the headline CoreFormula shows;
+                # below the threshold it means the pair hangs off the cluster
+                # through another one -- under the strict linkage it cannot happen.
+                "core_ratio": cluster["core_ratio"], "cohesion": cluster["cohesion"],
+                "core_tokens": cluster["core_tokens"], "mean_idf": cluster["mean_idf"],
+                "specificity": cluster["specificity"], "doc_texts": doc_texts,
+                # Under strict linkage a formula can belong to two cliques at once;
+                # the card then names the other cluster(s) it also belongs to.
+                "shared_with": cluster.get("shared_with", []),
+            })
+
+        if core_identities:
+            ordered = sorted(core_identities)
+            median_identity = ordered[len(ordered) // 2]
+        else:
+            median_identity = 0.0
+        print(f"Clustering: {grouped['stats']['n_pairs']} pair(s) -> "
+              f"{grouped['stats']['n_cores']} distinct core(s) -> "
+              f"{grouped['stats']['n_clusters']} cluster(s) "
+              f"({grouped['stats'].get('linkage', 'louvain')} linkage).")
+        print(f"Cores: median aligned identity {median_identity:.3f}; "
+              f"{n_degraded} pair(s) fell back to the strict contiguous core.")
+        if core_anchors:
+            print(f"Anchoring: {n_anchored} of {len(pair_docs)} pair(s) seeded on a performative "
+                  f"verb ({', '.join(core_anchors[:6])}...); "
+                  f"{len(pair_docs) - n_anchored} kept the unanchored window.")
+        else:
+            print("Anchoring: off (core_anchors is empty); windows come from the "
+                  "matched-token chain alone.")
+        if forced_groups:
+            n_forced = sum(len(g) for g in forced_groups)
+            n_lone = sum(1 for g in forced_groups if len(g) == 1)
+            print(f"Duplicate links: {n_forced} pair(s) clear the near-duplicate rule on their "
+                  f"shared span and are wired into the graph by that alone, in "
+                  f"{len(forced_groups)} charter family/families.")
+            if n_lone:
+                print(f"  {n_lone} of those families hold a single pair, so cluster_min "
+                      f"({cluster_min}) still leaves them out of the cluster report; "
+                      f"they are named in the pairs report.")
+        # Keyed by (i, j) rather than by position: pairs whose two texts share no
+        # single run of words were dropped above, so a positional lookup would
+        # silently hand a later pair the cluster of an earlier one.
+        pair_cluster_of = {pair_docs[p]: grouped["pair_cluster"][p] for p in range(len(pair_docs))}
+        return {
+            "grouped": grouped,
+            "records": records,
+            "pair_cluster_of": pair_cluster_of,
+            # Ready-made ClusterID cells for the summary TSVs, one list per side.
+            "cluster_ids1": flame_clustering.cluster_id_map(clusters, pair_docs, len(doc_names1), sides1),
+            "cluster_ids2": flame_clustering.cluster_id_map(clusters, pair_docs, len(doc_names2), sides2),
+            "cluster_threshold": cluster_threshold,
+            "cluster_min": cluster_min,
+            "similarity_threshold": similarity_threshold,
+            # How many pairs the anchor actually served, for the provenance block:
+            # the rest kept the unanchored window, and a report that hid that
+            # would read as if every cluster had been anchored.
+            "n_anchored": n_anchored,
+            "n_pairs": len(pair_docs),
+        }
+
+    @staticmethod
+    def _cluster_input_info(analyzer, clusters: dict) -> Dict[str, object]:
+        """What the cluster report has to say about the corpus it was computed on.
+
+        The report is read away from the run that produced it, so it carries its
+        own provenance: which corpus, how many charters survived loading and why
+        the rest did not, which thresholds were used and where they came from, and
+        the command line that reproduces it. All of it is known here and nowhere
+        downstream.
+        """
+        stats1 = analyzer.load_stats or {}
+        stats2 = analyzer.load_stats2 or {}
+        auto = str(analyzer.args.similarity_threshold).lower() == 'auto'
+        return {
+            "mode": "two" if analyzer.is_inter_comparison else "single",
+            "input": analyzer.args.input_path,
+            "input2": analyzer.args.input_path2 or None,
+            "pattern": looks_like_pattern(analyzer.args.input_path),
+            "suffix": analyzer.args.file_suffix,
+            "charters": ([len(analyzer.corpus), len(analyzer.corpus2)] if analyzer.is_inter_comparison
+                         else [len(analyzer.corpus)]),
+            "files_found": ([stats1.get("found"), stats2.get("found")] if analyzer.is_inter_comparison
+                            else [stats1.get("found")]),
+            "files_short": ([stats1.get("short", 0), stats2.get("short", 0)] if analyzer.is_inter_comparison
+                            else [stats1.get("short", 0)]),
+            "files_duplicate": ([stats1.get("duplicate", 0), stats2.get("duplicate", 0)]
+                                if analyzer.is_inter_comparison else [stats1.get("duplicate", 0)]),
+            "deduplicate": bool(analyzer.args.deduplicate),
+            "min_text_length": analyzer.args.min_text_length,
+            "keep_texts": analyzer.args.keep_texts,
+            "limit_reached": bool(stats1.get("limit_reached") or stats2.get("limit_reached")),
+            "threshold_source": (f"{analyzer.args.auto_threshold_method}" if auto else None),
+            "linkage": clusters["grouped"]["stats"].get("linkage", "louvain"),
+            "alignment": (f"gapped local alignment, gaps up to "
+                          f"{int(analyzer.args.core_gap_tolerance)} token(s); a pair whose window "
+                          f"falls below {int(analyzer.args.core_min_tokens)} token(s) or under "
+                          f"{float(analyzer.args.core_identity_threshold):.2f} identity falls back "
+                          f"to the longest contiguous run"),
+            "anchors": ([f"seeded on a performative verb (up to +/-"
+                         f"{int(analyzer.args.core_anchor_window)} token(s), window capped at "
+                         f"{int(analyzer.args.core_max_tokens)} token(s)); a pair whose shared text "
+                         f"carries none keeps the unanchored window"]
+                        if str(analyzer.args.core_anchors).strip() else
+                        ["off: windows come from the matched-token chain alone, so the longest "
+                         "shared run (the protocol) wins"]),
+            # `.get` because a report can be built from a clustering dict that
+            # never went through `compute_clusters` (the tests do exactly that),
+            # and a provenance block is not worth an exception.
+            "anchor_counts": ([clusters.get("n_anchored", 0),
+                               clusters.get("n_pairs",
+                                            clusters["grouped"]["stats"].get("n_pairs", 0))]
+                              if str(analyzer.args.core_anchors).strip() else None),
+
+            "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "command": " ".join([os.path.basename(_LAUNCH_ARGV[0])] + _LAUNCH_ARGV[1:]),
+        }
+
+    @staticmethod
+    def generate_cluster_report(analyzer, clusters: Optional[dict]) -> None:
+        """Writes the standalone cluster report from an already-computed clustering."""
+        if not clusters or not clusters["records"]:
+            print("No cluster reached the minimum size; skipping the cluster report.")
+            return
+        flame_clustering.generate_cluster_report(
+            clusters["records"], clusters["grouped"]["stats"],
+            similarity_threshold=clusters["similarity_threshold"],
+            cluster_threshold=clusters["cluster_threshold"],
+            cluster_min=clusters["cluster_min"],
+            input_info=SimilarityVisualizer._cluster_input_info(analyzer, clusters),
+            max_core_fraction=flame_clustering.MAX_CORE_FRACTION,
+            min_duplicate_tokens=int(getattr(analyzer.args, 'min_duplicate_tokens', 400) or 400))
+
+    @staticmethod
+    def generate_similarity_summary_tsv(analyzer, similarity_threshold: float, clusters: Optional[dict] = None):
         if analyzer.dist_mat is None or not analyzer.corpus: return
         print(f"Generating TSV summary using threshold: {similarity_threshold:.4f}")
         related_docs_map = defaultdict(list)
@@ -1451,7 +2156,13 @@ document.addEventListener("DOMContentLoaded", function() {
         for i, j, score in zip(dist_mat_coo.row, dist_mat_coo.col, dist_mat_coo.data):
             if i != j and score >= similarity_threshold:
                 related_docs_map[i].append(j)
-        header = "DocumentFilename\tSimilarityFrequency\tRelatedDocuments\tLongSimilarities(>4words)\n"
+        # The ClusterID column appears only when clustering actually ran, so a run
+        # with -gen_clusters False keeps the older four-column layout and
+        # anything parsing this file downstream is unaffected.
+        if clusters:
+            header = "DocumentFilename\tClusterID\tSimilarityFrequency\tRelatedDocuments\tLongSimilarities(>4words)\n"
+        else:
+            header = "DocumentFilename\tSimilarityFrequency\tRelatedDocuments\tLongSimilarities(>4words)\n"
         rows = [header]
         display_token_corpus1 = [word_tokenize(text) for text in analyzer.corpus]
         if analyzer.is_inter_comparison:
@@ -1476,17 +2187,24 @@ document.addEventListener("DOMContentLoaded", function() {
                                             for j in related_docs_indices])
             long_segments_str = ' | '.join(f'"{s}"' for s in sorted(long_segments, key=len, reverse=True)) or 'None'
             related_docs_str = ', '.join(related_doc_names) or 'None'
-            rows.append(f"{display_path(analyzer.file_paths[i], analyzer.corpus_root)}\t{len(related_doc_names)}\t{related_docs_str}\t{long_segments_str}\n")
+            cluster_cell = f"{clusters['cluster_ids1'][i]}\t" if clusters else ""
+            rows.append(f"{display_path(analyzer.file_paths[i], analyzer.corpus_root)}\t{cluster_cell}{len(related_doc_names)}\t{related_docs_str}\t{long_segments_str}\n")
         with open("similarity_summary.tsv", "w", encoding='utf-8') as f: f.writelines(rows)
         print("Generated similarity_summary.tsv")
 
     @staticmethod
-    def generate_linguistic_summary_tsv(analyzer, similarity_threshold: float):
+    def generate_linguistic_summary_tsv(analyzer, similarity_threshold: float, clusters: Optional[dict] = None):
         if analyzer.dist_mat is None or not analyzer.corpus: return
         print(f"Generating linguistic variations summary (TSV) using threshold: {similarity_threshold:.4f}")
         fuzz_threshold = analyzer.args.fuzz_threshold
         max_gap = analyzer.args.max_gap_words
-        rows = ["File_1\tFile_2\tVariation_Type\tToken_1\tToken_2\n"]
+        # Same contract as in the summary TSV: the column is present exactly when
+        # clustering ran, so the older five-column layout survives otherwise. A
+        # pair belongs to at most one cluster, so this cell is a single id or None.
+        if clusters:
+            rows = ["File_1\tFile_2\tClusterID\tVariation_Type\tToken_1\tToken_2\n"]
+        else:
+            rows = ["File_1\tFile_2\tVariation_Type\tToken_1\tToken_2\n"]
         display_token_corpus1 = [word_tokenize(text) for text in analyzer.corpus]
         display_token_corpus2 = [word_tokenize(text) for text in (analyzer.corpus2 or analyzer.corpus)]
         dist_mat_coo = analyzer.dist_mat.tocoo()
@@ -1502,6 +2220,15 @@ document.addEventListener("DOMContentLoaded", function() {
             file1_name = display_path(file1_path, analyzer.corpus_root)
             file2_name = display_path(file2_path, analyzer.corpus_root2 if analyzer.is_inter_comparison
                                       else analyzer.corpus_root)
+            # Built once here so all the row-building branches below share one
+            # prefix and cannot drift apart on the column count. -1 is the
+            # internal "this pair's formula is unique" sentinel and must not
+            # reach the file as a number a reader would take for a cluster id.
+            cluster_cell = ""
+            if clusters:
+                cid = clusters["pair_cluster_of"].get((int(i), int(j)), -1)
+                cluster_cell = f"{cid if cid >= 0 else 'None'}\t"
+            pair_prefix = f"{file1_name}\t{file2_name}\t{cluster_cell}"
             analysis_tokens1 = [t.lower() for t in tokens1 if t.isalnum()]
             analysis_tokens2 = [t.lower() for t in tokens2 if t.isalnum()]
             if not analysis_tokens1 or not analysis_tokens2: continue
@@ -1516,19 +2243,19 @@ document.addEventListener("DOMContentLoaded", function() {
                     # longer disagree about what is a bridge and what is a spelling variant.
                     kind, _ = classify_gap(gap_tokens1, gap_tokens2, fuzz_threshold)
                     if kind == 'insertion':
-                        for t1 in gap_tokens1: rows.append(f"{file1_name}\t{file2_name}\tInsertion\t{t1}\t-\n")
-                        for t2 in gap_tokens2: rows.append(f"{file1_name}\t{file2_name}\tInsertion\t-\t{t2}\n")
+                        for t1 in gap_tokens1: rows.append(f"{pair_prefix}Insertion\t{t1}\t-\n")
+                        for t2 in gap_tokens2: rows.append(f"{pair_prefix}Insertion\t-\t{t2}\n")
                     elif kind == 'variant' and len(gap_tokens1) == len(gap_tokens2):
                         for t1, t2 in zip(gap_tokens1, gap_tokens2):
-                            rows.append(f"{file1_name}\t{file2_name}\tOrthographic Variant\t{t1}\t{t2}\n")
+                            rows.append(f"{pair_prefix}Orthographic Variant\t{t1}\t{t2}\n")
                     elif kind == 'variant':
-                        rows.append(f"{file1_name}\t{file2_name}\tOrthographic Variant\t{' '.join(gap_tokens1)}\t{' '.join(gap_tokens2)}\n")
+                        rows.append(f"{pair_prefix}Orthographic Variant\t{' '.join(gap_tokens1)}\t{' '.join(gap_tokens2)}\n")
                     elif len(gap_tokens1) == len(gap_tokens2) and len(gap_tokens1) > 0:
                         for t1, t2 in zip(gap_tokens1, gap_tokens2):
-                            rows.append(f"{file1_name}\t{file2_name}\tDifferent Bridge Word\t{t1}\t{t2}\n")
+                            rows.append(f"{pair_prefix}Different Bridge Word\t{t1}\t{t2}\n")
                     else:
-                        for t1 in gap_tokens1: rows.append(f"{file1_name}\t{file2_name}\tDifferent Bridge Word\t{t1}\t-\n")
-                        for t2 in gap_tokens2: rows.append(f"{file1_name}\t{file2_name}\tDifferent Bridge Word\t-\t{t2}\n")
+                        for t1 in gap_tokens1: rows.append(f"{pair_prefix}Different Bridge Word\t{t1}\t-\n")
+                        for t2 in gap_tokens2: rows.append(f"{pair_prefix}Different Bridge Word\t-\t{t2}\n")
                 pos1_analysis, pos2_analysis = a + size, b + size
         with open("linguistic_variations.tsv", "w", encoding='utf-8') as f:
             f.writelines(rows)
@@ -1592,15 +2319,30 @@ def main():
                 else:
                     print("Skipping interactive HTML generation as per configuration.")
 
+                # Clustering has to run before the TSVs, because both of them carry
+                # a ClusterID column when it does. Its own report file is written
+                # last, once the clustering they consumed is settled.
+                clusters = None
+                if analyzer.args.gen_clusters:
+                    clusters = SimilarityVisualizer.compute_clusters(
+                        analyzer, similarity_threshold=final_threshold,
+                        cluster_threshold=analyzer.args.cluster_threshold,
+                        cluster_min=analyzer.args.cluster_min)
+                else:
+                    print("Skipping clustering as per configuration.")
+
                 if analyzer.args.gen_summary_tsv:
-                    SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                    SimilarityVisualizer.generate_similarity_summary_tsv(analyzer, similarity_threshold=final_threshold, clusters=clusters)
                 else:
                     print("Skipping summary TSV generation as per configuration.")
 
                 if analyzer.args.gen_linguistic_tsv:
-                    SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold)
+                    SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold, clusters=clusters)
                 else:
                     print("Skipping linguistic TSV generation as per configuration.")
+
+                if analyzer.args.gen_clusters:
+                    SimilarityVisualizer.generate_cluster_report(analyzer, clusters)
 
     except Exception as e:
         print(f"\nAn error occurred: {e}")
