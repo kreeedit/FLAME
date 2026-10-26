@@ -1,0 +1,10 @@
+system,gold_set,threshold,P,R,F1,pairs_found,gold_pairs,detected,FP,source
+Passim (Ostrowski 2024),literal_weak_19,,1.00,0.26,0.42,5,19,,,quoted
+BLAST (Ostrowski 2024),literal_weak_19,,0.38,0.26,0.31,5,19,,,quoted
+TextPAIR (Ostrowski 2024),literal_weak_19,,0.75,0.16,0.26,3,19,,,quoted
+"FLAME (vocab 35, ngram 5, n_out 2), best-F1 threshold",literal_weak_19,0.28,0.92,0.63,0.75,12,19,13,1,this run
+"FLAME (vocab 35, ngram 5, n_out 2), best-F1 threshold",all_23,0.28,0.92,0.52,0.67,12,23,13,1,this run
+"FLAME (vocab 35, ngram 5, n_out 2), Otsu threshold",literal_weak_19,0.0631,0.00,1.00,0.00,19,19,19878,19855,this run
+"FLAME (vocab 35, ngram 5, n_out 2), Otsu threshold",all_23,0.0631,0.00,1.00,0.00,23,23,19878,19855,this run
+"FLAME CLI defaults (vocab auto, ngram 6, n_out 1), Otsu threshold",literal_weak_19,0.0459,0.50,0.11,0.17,2,19,4,2,this run
+"FLAME CLI defaults (vocab auto, ngram 6, n_out 1), Otsu threshold",all_23,0.0459,0.50,0.09,0.15,2,23,4,2,this run

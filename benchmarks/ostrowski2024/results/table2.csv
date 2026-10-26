@@ -1,0 +1,5 @@
+configuration,gold_set,vocab_size,bpe_vocab_size,ngram,n_out,best_threshold,P,R,F1,TP,FP,literal,weak_literal,non_literal
+"FLAME (vocab 35, ngram 5, n_out 2)",all_23,35,35,5,2,0.28,0.92,0.52,0.67,12,1,11/13,1/6,0/4
+"- gapping (n_out = 0, contiguous)",all_23,35,35,5,0,0.12,0.69,0.48,0.56,11,5,11/13,0/6,0/4
+- fine tokens (vocab 200),all_23,200,200,5,2,0.11,0.50,0.30,0.38,7,7,7/13,0/6,0/4
+- subword (vocab_size auto),all_23,auto,360,5,2,0.10,0.62,0.22,0.32,5,3,5/13,0/6,0/4
