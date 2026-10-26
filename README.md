@@ -1,6 +1,7 @@
 # FLAME: Formulaic Language Analysis in Medieval Expressions
  
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15805448.svg)](https://doi.org/10.5281/zenodo.15805448)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 **FLAME** is a Python tool with **command-line** and **graphical** interfaces for finding formulaic
@@ -613,23 +614,33 @@ medieval charters.
 
 ## Cite
 
+Cite the concept DOI [10.5281/zenodo.15805448](https://doi.org/10.5281/zenodo.15805448), which
+resolves to the latest release. To pin the exact code you ran, cite its version DOI instead:
+
+| Version | Released | Version DOI |
+| --- | --- | --- |
+| 1.2.0 | 2026-10-19 | [10.5281/zenodo.23473940](https://doi.org/10.5281/zenodo.23473940) |
+| 1.1.0 (Zenodo label `GIU`) | 2026-06-26 | [10.5281/zenodo.20932532](https://doi.org/10.5281/zenodo.20932532) |
+| 1.0.0 | 2025-07-04 | [10.5281/zenodo.15805449](https://doi.org/10.5281/zenodo.15805449) |
+
+`CITATION.cff` holds the same metadata, and GitHub's "Cite this repository" button reads it.
+
 ### APA Style
 
-Kovács, T. (2025). *FLAME: Formulaic Language Analysis in Medieval Expressions* (Version 1.0.0) [Computer software]. GitHub. https://github.com/kreeedit/FLAME
+Kovács, T. (2026). *FLAME: Formulaic Language Analysis in Medieval Expressions* (Version 1.2.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.15805448
 
 ### BibTeX
 
 ```bibtex
-@software{Kovacs_FLAME_2025,
-  author = {Kovács, Tamás},
-  title = {{FLAME: Formulaic Language Analysis in Medieval Expressions}},
-  version = {1.0.0},
+@software{Kovacs_FLAME,
+  author    = {Kovács, Tamás},
+  title     = {{FLAME: Formulaic Language Analysis in Medieval Expressions}},
+  version   = {1.2.0},
   publisher = {Zenodo},
-  year = {2025},
-  doi = {10.5281/zenodo.15805449},
-  url = {[https://github.com/kreeedit/FLAME](https://github.com/kreeedit/FLAME)}
+  year      = {2026},
+  doi       = {10.5281/zenodo.15805448},
+  url       = {https://github.com/kreeedit/FLAME}
 }
-
 ```
 
 ---

@@ -1,11 +1,26 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
+message: "If you use this software, please cite it as below. The DOI below resolves to the latest release; cite a version DOI to pin the exact code you used."
 authors:
   - family-names: "Kovács"
     given-names: "Tamás"
     orcid: "https://orcid.org/0000-0002-3913-2946"
 title: "FLAME: Formulaic Language Analysis in Medieval Expressions"
-version: 1.0.0
-doi: 10.5281/zenodo.15805449
-date-released: 2025-07-04
+version: 1.2.0
+doi: 10.5281/zenodo.15805448
+date-released: 2026-10-19
 url: "https://github.com/kreeedit/FLAME"
+repository-code: "https://github.com/kreeedit/FLAME"
+license: Apache-2.0
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.15805448
+    description: "Concept DOI: all versions, resolves to the latest release"
+  - type: doi
+    value: 10.5281/zenodo.23473940
+    description: "Version DOI for v1.2.0 (2026-10-19)"
+  - type: doi
+    value: 10.5281/zenodo.20932532
+    description: "Version DOI for the GIU release (2026-06-26)"
+  - type: doi
+    value: 10.5281/zenodo.15805449
+    description: "Version DOI for v1.0.0 (2025-07-04)"
