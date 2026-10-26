@@ -15,12 +15,12 @@ or the replication run shows.
    on this corpus), not a word-level tokenizer. It is also flame.py's default setting.
 3. **§8 "cosine similarity over count vectors".** The code applies TF-IDF weighting
    (`TfidfTransformer`) before the cosine, and has done so since b6d0a22 (June 2026).
-4. **§8 log-transform for Otsu.** Not implemented. See issue "Otsu threshold accepts ~37% of all
-   pairs".
+4. **§8 log-transform for Otsu.** Not implemented. See the Otsu issue draft (01).
 5. **§7.2 "polynomial rolling hash".** Each sub-gram's polynomial is evaluated directly, as a
    matrix product. The values are identical; only the word "rolling" is off.
-6. **§10.5 bridges.** *ind herschapie* is rendered as an insertion. *friddens* / *vredens* is not
-   rendered at all. See the issue on trailing divergence.
+6. **§10.5 bridges.** *ind herschapie* is rendered as an insertion. Since the report fix (see
+   CHANGELOG, Unreleased), *friddens* / *vredens* (Dk G1r / KCh a5r5) is an orthographic variant,
+   and *friddens* / *waren vredens* (a5r4) is one bridge; *waren* is not flagged separately.
 7. **§10.5 "several of FLAME's few non-background false positives…"** At the operating point
    there is one false positive (Dk H-G1v / KCh bg_0301), and it is a background segment.
 8. **§10.2 Task B.** The text describes a diplomatist-annotated stratified sample, with a word-n-gram
@@ -31,10 +31,10 @@ or the replication run shows.
 10. **Operating point selection.** The operating point (vocab 35, ngram 5, n_out 2, threshold 0.28)
     is the best-F1 cell of a 459-configuration × 36-threshold grid, scored on the same 23 pairs.
     There is no held-out split, so Table 1's FLAME figure is an optimistic, in-sample number.
-11. **§10.3 hypothesis for Task A.** The article expects contiguous n-grams to "lose recall steeply"
-    with the perturbation rate while FLAME degrades gracefully. `perturbation.py` (r = 0–0.30, 5
-    seeds, every KCh file perturbed, thresholds fixed at each system's clean best-F1) gives mean
-    recall 0.52 → 0.43 for FLAME and 0.48 → 0.37 for n_out 0. The gap is never more than 0.06, which
-    is within the seed spread. Precision is higher for FLAME (0.83–0.96 against 0.68–0.82). The
-    statement should be reworded to match, or the experiment redesigned, for example with a
-    word-level contiguous baseline.
+11. **§10.3 hypothesis for Task A.** The article expects contiguous n-grams to lose recall steeply
+    with the perturbation rate, while FLAME's recall degrades gracefully. `perturbation.py` (r =
+    0–0.30, 5 seeds, every KCh file perturbed) ran four layer settings, A0–A3. In each, FLAME is at
+    0.28 and the contiguous variant at its clean best-F1 threshold, 0.12. The mean recall difference
+    FLAME − contiguous lies between −0.08 and +0.06 at every rate, and is largest in A0 (mean +0.03).
+    At a shared threshold of 0.28, the contiguous variant's recall in A0 is 0.30 at r = 0 and 0.16
+    at r = 0.30, at precision 1.00. The tables are in `benchmarks/ostrowski2024/README.md`.

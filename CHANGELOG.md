@@ -15,10 +15,15 @@ Documentation, benchmark packaging, metadata, and one report-layer fix. The simi
   Ostrowski (2024b) evaluation set from Zenodo, checks its MD5, rebuilds the chain-level segments
   and distractors, and regenerates Tables 1 and 2 (`results/table1.csv`, `results/table2.csv`,
   `results/run.json`). `--grid` reruns the 459-configuration search that selected the operating
-  point. `perturbation.py` runs Task A (recall under synthetic noise) and writes
-  `results/perturbation.csv` and `results/perturbation.png`.
-- README sections: Method, Evaluation, Reproducibility, References. There is also a Zenodo DOI
-  badge.
+  point. Table 1 is scored at the article's fixed threshold of 0.28, once for each optional
+  normalization-layer setting (A0 none, A1 bigram, A2 bigram + phonetic, A3 with auto_tune; column
+  `layers`). `perturbation.py` runs Task A (recall under synthetic noise) for A0–A3 (column `run`)
+  and writes `results/perturbation.csv` and `results/perturbation.png`. The benchmark's
+  `README.md` is the full report.
+- README sections: Method, Evaluation, Reproducibility, References, and a Zenodo DOI badge.
+- `docs/METHOD.md`, `docs/CLUSTERING.md`, `docs/CLI.md`, `docs/RECIPES.md`: the full method
+  description, clustering documentation, CLI argument table (with the GUI, input-path, and
+  PyInstaller detail), and recipes, moved out of the README.
 - `docs/README_UPDATE_REPORT.md`: reproduced numbers next to the article's, plus the
   discrepancies listed below.
 - `docs/issues/`: issue drafts for the discrepancies, ready to file.
@@ -31,6 +36,9 @@ Documentation, benchmark packaging, metadata, and one report-layer fix. The simi
   longer than `max_gap_words` on either side stays unmarked. Similarity scores, fingerprints,
   thresholds, `similarity_summary.tsv`, and clusters are unchanged, and the TSV only gains rows.
   (`SimilarityVisualizer.highlight_similarities()`, `generate_linguistic_summary_tsv()`.)
+- README restructured into a short user document (217 lines, from 901). The detail moved verbatim
+  to `docs/` and to `benchmarks/ostrowski2024/README.md`. The illustrative "Method Comparison" table
+  and the worked example were dropped.
 - `CITATION.cff` and the README *Cite* block now give the concept DOI (10.5281/zenodo.15805448),
   version 1.2.0, and its version DOI (10.5281/zenodo.23473940). The earlier version DOIs are kept.
 - `html_comparsion.png` renamed to `html_comparison.png`.
@@ -55,8 +63,9 @@ Documentation, benchmark packaging, metadata, and one report-layer fix. The simi
 4. **Otsu threshold.** Article §8 says Otsu's method runs on the non-zero scores "and, where the
    residual skew remains severe, on a log-transform of it". `Flame._determine_auto_threshold()` runs
    `skimage.filters.threshold_otsu` on the non-zero scores only, with no log transform. On the
-   benchmark, at the article's operating point, Otsu selects 0.063. That accepts 19,878 of the
-   53,730 pairs (P < 0.01, F1 = 0.00).
+   benchmark, the non-zero scores are unimodal (53,716 of 53,730 pairs non-zero, one mode near
+   0.05), so Otsu has nothing to split. The benchmark therefore uses the article's fixed threshold,
+   0.28.
 5. **Alignment report, §10.5.** In Dk G5r / KCh r141, *ind herschapie* is rendered as an
    **insertion** (present on one side only), not as a bridge. The three-way
    bridge/variant/insertion classification dates from 784b655. The Regest 5 example
@@ -72,9 +81,8 @@ Documentation, benchmark packaging, metadata, and one report-layer fix. The simi
    stratified sample, with a word-n-gram detector and TRACER as baselines. Table 1 instead reports
    the Ostrowski gold standard, plus Passim/BLAST/TextPAIR figures quoted from Ostrowski (2024a).
 8. **Operating point vs. defaults.** The benchmark runs use `-min_text_length 15` (the default 150
-   would discard most segments) and `-char_norm_min_freq 2` (default 1). At flame.py's CLI defaults
-   (`vocab_size auto`, `ngram 6`, `n_out 1`, Otsu), FLAME reaches F1 = 0.15 on all 23 pairs
-   (0.17 on the 19-pair subset).
+   would discard most segments) and `-char_norm_min_freq 2` (default 1), plus the operating point
+   vocab 35, ngram 5, n_out 2, threshold 0.28 instead of the CLI defaults.
 9. **Provenance of the article's grid search.** The grid search ran on `flame_hashtfidf.py`, a
    development copy that is not tracked in the repository. Its tokenizer, fingerprint, similarity,
    threshold, and vocabulary-estimator functions match `flame.py` except for docstrings, and the
