@@ -256,7 +256,10 @@ def provenance(seconds, dataset_md5, corpus_stats):
             versions[mod] = __import__(mod).__version__
         except Exception:
             versions[mod] = None
-    status = git('status', '--porcelain', '--', 'flame.py', 'flame_clustering.py', 'benchmarks')
+    # Dirty means the code that produced the numbers differs from the commit; the
+    # results/ files this run overwrites do not count.
+    status = git('status', '--porcelain', '--untracked-files=no', '--', 'flame.py', 'flame_clustering.py',
+                 *[str(p.relative_to(REPO)) for p in HERE.glob('*.py')])
     return dict(git_commit=git('rev-parse', 'HEAD'),
                 git_dirty=bool(status),
                 python=platform.python_version(), platform=platform.platform(),
