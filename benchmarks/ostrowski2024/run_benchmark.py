@@ -232,7 +232,9 @@ def evaluate(scores, gold, links, thr):
         tot = [p for p, s in gold.items() if s == sub]
         out[f'hit_{sub}'] = f"{sum(1 for p in tot if p in detected)}/{len(tot)}"
     out['FP_background'] = sum(1 for d, k in fp if '_bg_' in d or '_bg_' in k)
-    out['false_positives'] = sorted(f"{d} <-> {k}" for d, k in fp)
+    # Named only when few enough to read; at a background-level threshold the
+    # list would run to tens of thousands of pairs.
+    out['false_positives'] = sorted(f"{d} <-> {k}" for d, k in fp) if len(fp) <= 50 else None
     return out
 
 
