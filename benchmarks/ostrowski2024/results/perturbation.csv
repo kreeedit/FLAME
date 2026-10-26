@@ -1,71 +1,281 @@
-system,rate,seed,threshold,recall,precision,TP,FP
-"FLAME (gapped, n_out 2)",0.0,42,0.28,0.5217,0.9231,12,1
-Contiguous (n_out 0),0.0,42,0.12,0.4783,0.6875,11,5
-"FLAME (gapped, n_out 2)",0.0,43,0.28,0.5217,0.9231,12,1
-Contiguous (n_out 0),0.0,43,0.12,0.4783,0.6875,11,5
-"FLAME (gapped, n_out 2)",0.0,44,0.28,0.5217,0.9231,12,1
-Contiguous (n_out 0),0.0,44,0.12,0.4783,0.6875,11,5
-"FLAME (gapped, n_out 2)",0.0,45,0.28,0.5217,0.9231,12,1
-Contiguous (n_out 0),0.0,45,0.12,0.4783,0.6875,11,5
-"FLAME (gapped, n_out 2)",0.0,46,0.28,0.5217,0.9231,12,1
-Contiguous (n_out 0),0.0,46,0.12,0.4783,0.6875,11,5
-"FLAME (gapped, n_out 2)",0.05,42,0.28,0.5217,0.8571,12,2
-Contiguous (n_out 0),0.05,42,0.12,0.4348,0.7692,10,3
-"FLAME (gapped, n_out 2)",0.05,43,0.28,0.4783,0.8462,11,2
-Contiguous (n_out 0),0.05,43,0.12,0.4348,0.5882,10,7
-"FLAME (gapped, n_out 2)",0.05,44,0.28,0.5217,0.8571,12,2
-Contiguous (n_out 0),0.05,44,0.12,0.4348,0.6667,10,5
-"FLAME (gapped, n_out 2)",0.05,45,0.28,0.4783,0.7857,11,3
-Contiguous (n_out 0),0.05,45,0.12,0.4348,0.6667,10,5
-"FLAME (gapped, n_out 2)",0.05,46,0.28,0.4783,0.8462,11,2
-Contiguous (n_out 0),0.05,46,0.12,0.4783,0.6875,11,5
-"FLAME (gapped, n_out 2)",0.1,42,0.28,0.5217,0.8571,12,2
-Contiguous (n_out 0),0.1,42,0.12,0.4348,0.8333,10,2
-"FLAME (gapped, n_out 2)",0.1,43,0.28,0.4783,0.7857,11,3
-Contiguous (n_out 0),0.1,43,0.12,0.4348,0.625,10,6
-"FLAME (gapped, n_out 2)",0.1,44,0.28,0.4348,0.9091,10,1
-Contiguous (n_out 0),0.1,44,0.12,0.3913,0.6923,9,4
-"FLAME (gapped, n_out 2)",0.1,45,0.28,0.4783,0.8462,11,2
-Contiguous (n_out 0),0.1,45,0.12,0.4348,0.6667,10,5
-"FLAME (gapped, n_out 2)",0.1,46,0.28,0.4348,0.7692,10,3
-Contiguous (n_out 0),0.1,46,0.12,0.4348,0.7692,10,3
-"FLAME (gapped, n_out 2)",0.15,42,0.28,0.4348,0.9091,10,1
-Contiguous (n_out 0),0.15,42,0.12,0.4348,0.6667,10,5
-"FLAME (gapped, n_out 2)",0.15,43,0.28,0.4783,0.9167,11,1
-Contiguous (n_out 0),0.15,43,0.12,0.4348,0.7692,10,3
-"FLAME (gapped, n_out 2)",0.15,44,0.28,0.4783,0.8462,11,2
-Contiguous (n_out 0),0.15,44,0.12,0.4348,0.6667,10,5
-"FLAME (gapped, n_out 2)",0.15,45,0.28,0.4348,0.8333,10,2
-Contiguous (n_out 0),0.15,45,0.12,0.4783,0.7333,11,4
-"FLAME (gapped, n_out 2)",0.15,46,0.28,0.3913,0.9,9,1
-Contiguous (n_out 0),0.15,46,0.12,0.3913,0.6923,9,4
-"FLAME (gapped, n_out 2)",0.2,42,0.28,0.3913,1.0,9,0
-Contiguous (n_out 0),0.2,42,0.12,0.4348,0.9091,10,1
-"FLAME (gapped, n_out 2)",0.2,43,0.28,0.3913,0.9,9,1
-Contiguous (n_out 0),0.2,43,0.12,0.3913,0.8182,9,2
-"FLAME (gapped, n_out 2)",0.2,44,0.28,0.3913,0.9,9,1
-Contiguous (n_out 0),0.2,44,0.12,0.4348,0.7143,10,4
-"FLAME (gapped, n_out 2)",0.2,45,0.28,0.4348,0.9091,10,1
-Contiguous (n_out 0),0.2,45,0.12,0.4348,0.6667,10,5
-"FLAME (gapped, n_out 2)",0.2,46,0.28,0.4348,0.8333,10,2
-Contiguous (n_out 0),0.2,46,0.12,0.3478,0.6667,8,4
-"FLAME (gapped, n_out 2)",0.25,42,0.28,0.4348,1.0,10,0
-Contiguous (n_out 0),0.25,42,0.12,0.3478,0.7273,8,3
-"FLAME (gapped, n_out 2)",0.25,43,0.28,0.4783,0.9167,11,1
-Contiguous (n_out 0),0.25,43,0.12,0.4348,0.7143,10,4
-"FLAME (gapped, n_out 2)",0.25,44,0.28,0.3913,0.9,9,1
-Contiguous (n_out 0),0.25,44,0.12,0.3913,0.6429,9,5
-"FLAME (gapped, n_out 2)",0.25,45,0.28,0.3043,0.875,7,1
-Contiguous (n_out 0),0.25,45,0.12,0.3043,0.7778,7,2
-"FLAME (gapped, n_out 2)",0.25,46,0.28,0.3478,0.8889,8,1
-Contiguous (n_out 0),0.25,46,0.12,0.3913,0.75,9,3
-"FLAME (gapped, n_out 2)",0.3,42,0.28,0.3913,0.9,9,1
-Contiguous (n_out 0),0.3,42,0.12,0.3913,0.8182,9,2
-"FLAME (gapped, n_out 2)",0.3,43,0.28,0.3913,1.0,9,0
-Contiguous (n_out 0),0.3,43,0.12,0.3478,0.8,8,2
-"FLAME (gapped, n_out 2)",0.3,44,0.28,0.4348,1.0,10,0
-Contiguous (n_out 0),0.3,44,0.12,0.3913,0.75,9,3
-"FLAME (gapped, n_out 2)",0.3,45,0.28,0.4783,1.0,11,0
-Contiguous (n_out 0),0.3,45,0.12,0.4348,0.8333,10,2
-"FLAME (gapped, n_out 2)",0.3,46,0.28,0.4783,0.9167,11,1
-Contiguous (n_out 0),0.3,46,0.12,0.3043,0.875,7,1
+run,layers,system,rate,seed,threshold,ngram,n_out,recall,precision,TP,FP,recall_at_0_28,precision_at_0_28
+A0,none,"FLAME (gapped, n_out 2)",0.0,42,0.28,5,2,0.5217,0.9231,12,1,0.5217,0.9231
+A0,none,Contiguous (n_out 0),0.0,42,0.12,5,0,0.4783,0.6875,11,5,0.3043,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.0,42,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.0,42,0.12,5,0,0.3913,0.6923,9,4,0.3478,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.0,42,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.0,42,0.12,5,0,0.4348,0.8333,10,2,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.0,42,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.0,42,0.12,4,0,0.4783,0.6111,11,7,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.0,43,0.28,5,2,0.5217,0.9231,12,1,0.5217,0.9231
+A0,none,Contiguous (n_out 0),0.0,43,0.12,5,0,0.4783,0.6875,11,5,0.3043,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.0,43,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.0,43,0.12,5,0,0.3913,0.6923,9,4,0.3478,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.0,43,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.0,43,0.12,5,0,0.4348,0.8333,10,2,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.0,43,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.0,43,0.12,4,0,0.4783,0.6111,11,7,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.0,44,0.28,5,2,0.5217,0.9231,12,1,0.5217,0.9231
+A0,none,Contiguous (n_out 0),0.0,44,0.12,5,0,0.4783,0.6875,11,5,0.3043,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.0,44,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.0,44,0.12,5,0,0.3913,0.6923,9,4,0.3478,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.0,44,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.0,44,0.12,5,0,0.4348,0.8333,10,2,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.0,44,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.0,44,0.12,4,0,0.4783,0.6111,11,7,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.0,45,0.28,5,2,0.5217,0.9231,12,1,0.5217,0.9231
+A0,none,Contiguous (n_out 0),0.0,45,0.12,5,0,0.4783,0.6875,11,5,0.3043,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.0,45,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.0,45,0.12,5,0,0.3913,0.6923,9,4,0.3478,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.0,45,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.0,45,0.12,5,0,0.4348,0.8333,10,2,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.0,45,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.0,45,0.12,4,0,0.4783,0.6111,11,7,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.0,46,0.28,5,2,0.5217,0.9231,12,1,0.5217,0.9231
+A0,none,Contiguous (n_out 0),0.0,46,0.12,5,0,0.4783,0.6875,11,5,0.3043,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.0,46,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.0,46,0.12,5,0,0.3913,0.6923,9,4,0.3478,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.0,46,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.0,46,0.12,5,0,0.4348,0.8333,10,2,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.0,46,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.0,46,0.12,4,0,0.4783,0.6111,11,7,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.05,42,0.28,5,2,0.5217,0.8571,12,2,0.5217,0.8571
+A0,none,Contiguous (n_out 0),0.05,42,0.12,5,0,0.4348,0.7692,10,3,0.3043,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.05,42,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A1,bigram,Contiguous (n_out 0),0.05,42,0.12,5,0,0.3913,0.6429,9,5,0.3478,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.05,42,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.05,42,0.12,5,0,0.4348,0.8333,10,2,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.05,42,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.05,42,0.12,4,0,0.4783,0.6471,11,6,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.05,43,0.28,5,2,0.4783,0.8462,11,2,0.4783,0.8462
+A0,none,Contiguous (n_out 0),0.05,43,0.12,5,0,0.4348,0.5882,10,7,0.3043,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.05,43,0.28,5,2,0.3478,0.8,8,2,0.3478,0.8
+A1,bigram,Contiguous (n_out 0),0.05,43,0.12,5,0,0.3913,0.6429,9,5,0.3043,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.05,43,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.05,43,0.12,5,0,0.4348,0.9091,10,1,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.05,43,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.05,43,0.12,4,0,0.4348,0.5882,10,7,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.05,44,0.28,5,2,0.5217,0.8571,12,2,0.5217,0.8571
+A0,none,Contiguous (n_out 0),0.05,44,0.12,5,0,0.4348,0.6667,10,5,0.3043,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.05,44,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A1,bigram,Contiguous (n_out 0),0.05,44,0.12,5,0,0.3913,0.6923,9,4,0.3043,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.05,44,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.05,44,0.12,5,0,0.4348,0.8333,10,2,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.05,44,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.05,44,0.12,4,0,0.4783,0.6471,11,6,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.05,45,0.28,5,2,0.4783,0.7857,11,3,0.4783,0.7857
+A0,none,Contiguous (n_out 0),0.05,45,0.12,5,0,0.4348,0.6667,10,5,0.2609,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.05,45,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.05,45,0.12,5,0,0.3913,0.75,9,3,0.3043,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.05,45,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.05,45,0.12,5,0,0.3913,0.9,9,1,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.05,45,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.05,45,0.12,4,0,0.4783,0.6875,11,5,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.05,46,0.28,5,2,0.4783,0.8462,11,2,0.4783,0.8462
+A0,none,Contiguous (n_out 0),0.05,46,0.12,5,0,0.4783,0.6875,11,5,0.2609,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.05,46,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A1,bigram,Contiguous (n_out 0),0.05,46,0.12,5,0,0.3913,0.6429,9,5,0.3043,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.05,46,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.05,46,0.12,5,0,0.4348,0.9091,10,1,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.05,46,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.05,46,0.12,4,0,0.4783,0.6471,11,6,0.3043,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.1,42,0.28,5,2,0.5217,0.8571,12,2,0.5217,0.8571
+A0,none,Contiguous (n_out 0),0.1,42,0.12,5,0,0.4348,0.8333,10,2,0.2609,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.1,42,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.1,42,0.12,5,0,0.3913,0.9,9,1,0.3043,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.1,42,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.1,42,0.12,5,0,0.4348,1.0,10,0,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.1,42,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.1,42,0.12,4,0,0.4783,0.9167,11,1,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.1,43,0.28,5,2,0.4783,0.7857,11,3,0.4783,0.7857
+A0,none,Contiguous (n_out 0),0.1,43,0.12,5,0,0.4348,0.625,10,6,0.2609,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.1,43,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.1,43,0.12,5,0,0.3913,0.6429,9,5,0.3043,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.1,43,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.1,43,0.12,5,0,0.4348,0.9091,10,1,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.1,43,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.1,43,0.12,4,0,0.4783,0.5789,11,8,0.3043,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.1,44,0.28,5,2,0.4348,0.9091,10,1,0.4348,0.9091
+A0,none,Contiguous (n_out 0),0.1,44,0.12,5,0,0.3913,0.6923,9,4,0.2609,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.1,44,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A1,bigram,Contiguous (n_out 0),0.1,44,0.12,5,0,0.3478,0.6667,8,4,0.3043,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.1,44,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.1,44,0.12,5,0,0.3913,0.9,9,1,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.1,44,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.1,44,0.12,4,0,0.4348,0.625,10,6,0.3043,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.1,45,0.28,5,2,0.4783,0.8462,11,2,0.4783,0.8462
+A0,none,Contiguous (n_out 0),0.1,45,0.12,5,0,0.4348,0.6667,10,5,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.1,45,0.28,5,2,0.3478,0.8,8,2,0.3478,0.8
+A1,bigram,Contiguous (n_out 0),0.1,45,0.12,5,0,0.3913,0.75,9,3,0.1739,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.1,45,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.1,45,0.12,5,0,0.3913,0.9,9,1,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.1,45,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.1,45,0.12,4,0,0.4783,0.7333,11,4,0.2609,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.1,46,0.28,5,2,0.4348,0.7692,10,3,0.4348,0.7692
+A0,none,Contiguous (n_out 0),0.1,46,0.12,5,0,0.4348,0.7692,10,3,0.2609,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.1,46,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.1,46,0.12,5,0,0.3913,0.75,9,3,0.3043,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.1,46,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.1,46,0.12,5,0,0.4348,0.9091,10,1,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.1,46,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.1,46,0.12,4,0,0.4783,0.6471,11,6,0.2609,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.15,42,0.28,5,2,0.4348,0.9091,10,1,0.4348,0.9091
+A0,none,Contiguous (n_out 0),0.15,42,0.12,5,0,0.4348,0.6667,10,5,0.1739,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.15,42,0.28,5,2,0.3478,0.8889,8,1,0.3478,0.8889
+A1,bigram,Contiguous (n_out 0),0.15,42,0.12,5,0,0.3913,0.6923,9,4,0.1739,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.15,42,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.15,42,0.12,5,0,0.3913,0.75,9,3,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.15,42,0.28,4,1,0.3478,1.0,8,0,0.3478,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.15,42,0.12,4,0,0.4783,0.6471,11,6,0.3043,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.15,43,0.28,5,2,0.4783,0.9167,11,1,0.4783,0.9167
+A0,none,Contiguous (n_out 0),0.15,43,0.12,5,0,0.4348,0.7692,10,3,0.2609,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.15,43,0.28,5,2,0.3043,1.0,7,0,0.3043,1.0
+A1,bigram,Contiguous (n_out 0),0.15,43,0.12,5,0,0.3913,0.75,9,3,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.15,43,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.15,43,0.12,5,0,0.3913,0.9,9,1,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.15,43,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.15,43,0.12,4,0,0.4783,0.7333,11,4,0.2174,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.15,44,0.28,5,2,0.4783,0.8462,11,2,0.4783,0.8462
+A0,none,Contiguous (n_out 0),0.15,44,0.12,5,0,0.4348,0.6667,10,5,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.15,44,0.28,5,2,0.3913,0.8182,9,2,0.3913,0.8182
+A1,bigram,Contiguous (n_out 0),0.15,44,0.12,5,0,0.3913,0.6429,9,5,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.15,44,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.15,44,0.12,5,0,0.3478,0.8,8,2,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.15,44,0.28,4,1,0.3478,1.0,8,0,0.3478,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.15,44,0.12,4,0,0.4348,0.5263,10,9,0.2174,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.15,45,0.28,5,2,0.4348,0.8333,10,2,0.4348,0.8333
+A0,none,Contiguous (n_out 0),0.15,45,0.12,5,0,0.4783,0.7333,11,4,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.15,45,0.28,5,2,0.3478,0.8889,8,1,0.3478,0.8889
+A1,bigram,Contiguous (n_out 0),0.15,45,0.12,5,0,0.3913,0.6923,9,4,0.2609,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.15,45,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.15,45,0.12,5,0,0.3913,0.8182,9,2,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.15,45,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.15,45,0.12,4,0,0.4348,0.7692,10,3,0.2609,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.15,46,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A0,none,Contiguous (n_out 0),0.15,46,0.12,5,0,0.3913,0.6923,9,4,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.15,46,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A1,bigram,Contiguous (n_out 0),0.15,46,0.12,5,0,0.3913,0.8182,9,2,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.15,46,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.15,46,0.12,5,0,0.3478,0.7273,8,3,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.15,46,0.28,4,1,0.3478,1.0,8,0,0.3478,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.15,46,0.12,4,0,0.4348,0.6667,10,5,0.2174,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.2,42,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A0,none,Contiguous (n_out 0),0.2,42,0.12,5,0,0.4348,0.9091,10,1,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.2,42,0.28,5,2,0.3478,0.8889,8,1,0.3478,0.8889
+A1,bigram,Contiguous (n_out 0),0.2,42,0.12,5,0,0.3913,0.9,9,1,0.1739,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.2,42,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.2,42,0.12,5,0,0.4348,0.9091,10,1,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.2,42,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.2,42,0.12,4,0,0.4783,0.7333,11,4,0.1739,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.2,43,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A0,none,Contiguous (n_out 0),0.2,43,0.12,5,0,0.3913,0.8182,9,2,0.1739,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.2,43,0.28,5,2,0.3043,0.875,7,1,0.3043,0.875
+A1,bigram,Contiguous (n_out 0),0.2,43,0.12,5,0,0.3478,0.8889,8,1,0.1739,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.2,43,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.2,43,0.12,5,0,0.3043,1.0,7,0,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.2,43,0.28,4,1,0.3478,1.0,8,0,0.3478,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.2,43,0.12,4,0,0.3913,0.6923,9,4,0.1739,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.2,44,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A0,none,Contiguous (n_out 0),0.2,44,0.12,5,0,0.4348,0.7143,10,4,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.2,44,0.28,5,2,0.3478,0.8889,8,1,0.3478,0.8889
+A1,bigram,Contiguous (n_out 0),0.2,44,0.12,5,0,0.3913,0.6429,9,5,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.2,44,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.2,44,0.12,5,0,0.3478,1.0,8,0,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.2,44,0.28,4,1,0.3478,1.0,8,0,0.3478,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.2,44,0.12,4,0,0.4783,0.7333,11,4,0.2174,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.2,45,0.28,5,2,0.4348,0.9091,10,1,0.4348,0.9091
+A0,none,Contiguous (n_out 0),0.2,45,0.12,5,0,0.4348,0.6667,10,5,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.2,45,0.28,5,2,0.4348,0.9091,10,1,0.4348,0.9091
+A1,bigram,Contiguous (n_out 0),0.2,45,0.12,5,0,0.4348,0.8333,10,2,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.2,45,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.2,45,0.12,5,0,0.4348,0.8333,10,2,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.2,45,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.2,45,0.12,4,0,0.4348,0.625,10,6,0.3043,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.2,46,0.28,5,2,0.4348,0.8333,10,2,0.4348,0.8333
+A0,none,Contiguous (n_out 0),0.2,46,0.12,5,0,0.3478,0.6667,8,4,0.1304,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.2,46,0.28,5,2,0.3478,0.8,8,2,0.3478,0.8
+A1,bigram,Contiguous (n_out 0),0.2,46,0.12,5,0,0.2609,0.6,6,4,0.1304,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.2,46,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.2,46,0.12,5,0,0.3043,0.7778,7,2,0.0435,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.2,46,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.2,46,0.12,4,0,0.4348,0.5882,10,7,0.1304,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.25,42,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A0,none,Contiguous (n_out 0),0.25,42,0.12,5,0,0.3478,0.7273,8,3,0.1739,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.25,42,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A1,bigram,Contiguous (n_out 0),0.25,42,0.12,5,0,0.3043,0.7,7,3,0.1739,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.25,42,0.28,5,2,0.3043,1.0,7,0,0.3043,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.25,42,0.12,5,0,0.3043,0.7778,7,2,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.25,42,0.28,4,1,0.3043,1.0,7,0,0.3043,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.25,42,0.12,4,0,0.3478,0.6667,8,4,0.1739,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.25,43,0.28,5,2,0.4783,0.9167,11,1,0.4783,0.9167
+A0,none,Contiguous (n_out 0),0.25,43,0.12,5,0,0.4348,0.7143,10,4,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.25,43,0.28,5,2,0.4348,0.9091,10,1,0.4348,0.9091
+A1,bigram,Contiguous (n_out 0),0.25,43,0.12,5,0,0.4348,0.8333,10,2,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.25,43,0.28,5,2,0.4348,0.9091,10,1,0.4348,0.9091
+A2,bigram+phonetic,Contiguous (n_out 0),0.25,43,0.12,5,0,0.4348,1.0,10,0,0.087,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.25,43,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.25,43,0.12,4,0,0.4348,0.7692,10,3,0.3478,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.25,44,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A0,none,Contiguous (n_out 0),0.25,44,0.12,5,0,0.3913,0.6429,9,5,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.25,44,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A1,bigram,Contiguous (n_out 0),0.25,44,0.12,5,0,0.3913,0.6923,9,4,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.25,44,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.25,44,0.12,5,0,0.3913,0.9,9,1,0.1304,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.25,44,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.25,44,0.12,4,0,0.4348,0.625,10,6,0.1739,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.25,45,0.28,5,2,0.3043,0.875,7,1,0.3043,0.875
+A0,none,Contiguous (n_out 0),0.25,45,0.12,5,0,0.3043,0.7778,7,2,0.1304,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.25,45,0.28,5,2,0.3043,1.0,7,0,0.3043,1.0
+A1,bigram,Contiguous (n_out 0),0.25,45,0.12,5,0,0.3043,1.0,7,0,0.1739,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.25,45,0.28,5,2,0.3043,1.0,7,0,0.3043,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.25,45,0.12,5,0,0.3043,0.875,7,1,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.25,45,0.28,4,1,0.3043,1.0,7,0,0.3043,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.25,45,0.12,4,0,0.3478,0.5714,8,6,0.2609,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.25,46,0.28,5,2,0.3478,0.8889,8,1,0.3478,0.8889
+A0,none,Contiguous (n_out 0),0.25,46,0.12,5,0,0.3913,0.75,9,3,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.25,46,0.28,5,2,0.3043,0.875,7,1,0.3043,0.875
+A1,bigram,Contiguous (n_out 0),0.25,46,0.12,5,0,0.3043,0.7778,7,2,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.25,46,0.28,5,2,0.2609,1.0,6,0,0.2609,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.25,46,0.12,5,0,0.2609,0.8571,6,1,0.2174,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.25,46,0.28,4,1,0.2609,1.0,6,0,0.2609,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.25,46,0.12,4,0,0.3913,0.6,9,6,0.2174,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.3,42,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A0,none,Contiguous (n_out 0),0.3,42,0.12,5,0,0.3913,0.8182,9,2,0.2174,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.3,42,0.28,5,2,0.3478,0.8,8,2,0.3478,0.8
+A1,bigram,Contiguous (n_out 0),0.3,42,0.12,5,0,0.3913,0.9,9,1,0.2174,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.3,42,0.28,5,2,0.3913,0.9,9,1,0.3913,0.9
+A2,bigram+phonetic,Contiguous (n_out 0),0.3,42,0.12,5,0,0.3913,1.0,9,0,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.3,42,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.3,42,0.12,4,0,0.3913,0.9,9,1,0.3043,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.3,43,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A0,none,Contiguous (n_out 0),0.3,43,0.12,5,0,0.3478,0.8,8,2,0.1304,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.3,43,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A1,bigram,Contiguous (n_out 0),0.3,43,0.12,5,0,0.2609,0.6667,6,3,0.1304,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.3,43,0.28,5,2,0.3043,0.875,7,1,0.3043,0.875
+A2,bigram+phonetic,Contiguous (n_out 0),0.3,43,0.12,5,0,0.2174,0.8333,5,1,0.0435,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.3,43,0.28,4,1,0.3043,1.0,7,0,0.3043,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.3,43,0.12,4,0,0.3478,0.6667,8,4,0.1304,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.3,44,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A0,none,Contiguous (n_out 0),0.3,44,0.12,5,0,0.3913,0.75,9,3,0.1304,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.3,44,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A1,bigram,Contiguous (n_out 0),0.3,44,0.12,5,0,0.3478,1.0,8,0,0.1304,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.3,44,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.3,44,0.12,5,0,0.4348,1.0,10,0,0.1739,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.3,44,0.28,4,1,0.4348,1.0,10,0,0.4348,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.3,44,0.12,4,0,0.4783,1.0,11,0,0.2174,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.3,45,0.28,5,2,0.4783,1.0,11,0,0.4783,1.0
+A0,none,Contiguous (n_out 0),0.3,45,0.12,5,0,0.4348,0.8333,10,2,0.1304,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.3,45,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A1,bigram,Contiguous (n_out 0),0.3,45,0.12,5,0,0.3913,0.9,9,1,0.1304,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.3,45,0.28,5,2,0.3478,1.0,8,0,0.3478,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.3,45,0.12,5,0,0.3913,1.0,9,0,0.0435,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.3,45,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.3,45,0.12,4,0,0.4348,0.7692,10,3,0.2609,1.0
+A0,none,"FLAME (gapped, n_out 2)",0.3,46,0.28,5,2,0.4783,0.9167,11,1,0.4783,0.9167
+A0,none,Contiguous (n_out 0),0.3,46,0.12,5,0,0.3043,0.875,7,1,0.1739,1.0
+A1,bigram,"FLAME (gapped, n_out 2)",0.3,46,0.28,5,2,0.4348,1.0,10,0,0.4348,1.0
+A1,bigram,Contiguous (n_out 0),0.3,46,0.12,5,0,0.3478,1.0,8,0,0.1739,1.0
+A2,bigram+phonetic,"FLAME (gapped, n_out 2)",0.3,46,0.28,5,2,0.3913,1.0,9,0,0.3913,1.0
+A2,bigram+phonetic,Contiguous (n_out 0),0.3,46,0.12,5,0,0.3478,1.0,8,0,0.0435,1.0
+A3,bigram+phonetic+auto_tune,"FLAME (gapped, n_out 2)",0.3,46,0.28,4,1,0.3913,1.0,9,0,0.3913,1.0
+A3,bigram+phonetic+auto_tune,Contiguous (n_out 0),0.3,46,0.12,4,0,0.4348,0.7143,10,4,0.1304,1.0
