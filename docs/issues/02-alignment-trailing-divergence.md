@@ -1,5 +1,7 @@
 # Alignment report: divergence after the last matching block is not classified
 
+**Status: fixed locally in the report layer (see CHANGELOG, Unreleased > Changed). Keep this as a record, or close it on filing.**
+
 **Labels:** visualizer, article
 
 ## What happens

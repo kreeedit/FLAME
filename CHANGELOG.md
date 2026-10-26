@@ -6,7 +6,7 @@ concept DOI [10.5281/zenodo.15805448](https://doi.org/10.5281/zenodo.15805448).
 
 ## [Unreleased]
 
-Documentation, benchmark packaging, and metadata only. The algorithm and its defaults are unchanged.
+Documentation, benchmark packaging, metadata, and one report-layer fix. The similarity algorithm and its defaults are unchanged.
 
 ### Added
 
@@ -25,11 +25,17 @@ Documentation, benchmark packaging, and metadata only. The algorithm and its def
 
 ### Changed
 
+- **Report layer only:** the words after the last matching block of a pair are now classified
+  (bridge / orthographic variant / insertion), like the gaps between matches. Before, they were
+  printed unmarked and never reached `linguistic_variations.tsv`. As with interior gaps, a tail
+  longer than `max_gap_words` on either side stays unmarked. Similarity scores, fingerprints,
+  thresholds, `similarity_summary.tsv`, and clusters are unchanged, and the TSV only gains rows.
+  (`SimilarityVisualizer.highlight_similarities()`, `generate_linguistic_summary_tsv()`.)
 - `CITATION.cff` and the README *Cite* block now give the concept DOI (10.5281/zenodo.15805448),
   version 1.2.0, and its version DOI (10.5281/zenodo.23473940). The earlier version DOIs are kept.
 - `html_comparsion.png` renamed to `html_comparison.png`.
 
-### Documented discrepancies (article vs. code). Neither side has been changed.
+### Documented discrepancies (article vs. code). Neither side has been changed, except the report fix noted in item 5.
 
 1. **Table 1 caption wording (not a contradiction between the tables).** Tables 1 and 2 report the
    same run (13 detections, 12 correct, 1 false positive), scored on two gold sets. Table 1 uses the
@@ -53,11 +59,11 @@ Documentation, benchmark packaging, and metadata only. The algorithm and its def
    53,730 pairs (P < 0.01, F1 = 0.00).
 5. **Alignment report, §10.5.** In Dk G5r / KCh r141, *ind herschapie* is rendered as an
    **insertion** (present on one side only), not as a bridge. The three-way
-   bridge/variant/insertion classification dates from 784b655. In Dk G1r / KCh a5r4, only
-   *eyn Stat des* is aligned. The trailing *friddens* / *waren vredens* follows the last matching
-   block, and `SimilarityVisualizer.highlight_similarities()` prints such trailing text unmarked.
-   So the "similar bridge" and the separately flagged *waren* that the article describes do not
-   appear.
+   bridge/variant/insertion classification dates from 784b655. The Regest 5 example
+   (*friddens* / *waren vredens*) was not classified because it follows the last matching block.
+   This is fixed in the report layer (see *Changed*): Dk G1r / KCh a5r5 now shows
+   *friddens* / *vredens* as an orthographic variant, and Dk G1r / KCh a5r4 shows *friddens* /
+   *waren vredens* as one bridge. *waren* is not flagged separately.
 6. **False positives, §10.5.** The article says several non-background false positives are
    cross-matches inside documented regest clusters. At the operating point there is one false
    positive, and it involves a background segment (Dk H-G1v / KCh bg_0301). A segment-to-segment

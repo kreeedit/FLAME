@@ -1377,10 +1377,20 @@ class SimilarityVisualizer:
             m_id += 1
             pos1, pos2 = a_end_orig, b_end_orig
 
-        if pos1 < len(text1_original_tokens):
-            highlighted_html_text1.append(SimilarityVisualizer.detokenizer.detokenize(text1_original_tokens[pos1:]))
-        if pos2 < len(text2_original_tokens):
-            highlighted_html_text2.append(SimilarityVisualizer.detokenizer.detokenize(text2_original_tokens[pos2:]))
+        # The words after the last match are classified like any other gap, so a pair
+        # that diverges only at its end (eyn Stat des friddens / eyn Stat des waren
+        # vredens) still shows the divergence. _render_gap_html leaves a tail longer
+        # than max_gap_words on either side as plain text, as before.
+        if m_id > 0 and (pos1 < len(text1_original_tokens) or pos2 < len(text2_original_tokens)):
+            tail1_html, tail2_html = SimilarityVisualizer._render_gap_html(
+                text1_original_tokens[pos1:], text2_original_tokens[pos2:], max_gap_words, fuzz_threshold)
+            if tail1_html: highlighted_html_text1.append(tail1_html)
+            if tail2_html: highlighted_html_text2.append(tail2_html)
+        else:
+            if pos1 < len(text1_original_tokens):
+                highlighted_html_text1.append(SimilarityVisualizer.detokenizer.detokenize(text1_original_tokens[pos1:]))
+            if pos2 < len(text2_original_tokens):
+                highlighted_html_text2.append(SimilarityVisualizer.detokenizer.detokenize(text2_original_tokens[pos2:]))
 
         return " ".join(filter(None, highlighted_html_text1)), " ".join(filter(None, highlighted_html_text2))
 
@@ -2234,11 +2244,21 @@ document.addEventListener("DOMContentLoaded", function() {
             if not analysis_tokens1 or not analysis_tokens2: continue
             matcher = SequenceMatcher(None, analysis_tokens1, analysis_tokens2, autojunk=False)
             pos1_analysis, pos2_analysis = 0, 0
+            matched = False
             for a, b, size in matcher.get_matching_blocks():
-                if size == 0: continue
                 gap_tokens1 = analysis_tokens1[pos1_analysis:a]
                 gap_tokens2 = analysis_tokens2[pos2_analysis:b]
-                if (1 <= len(gap_tokens1) <= max_gap) or (1 <= len(gap_tokens2) <= max_gap):
+                if size == 0:
+                    # The closing sentinel block: what is left is the tail after the
+                    # last match. It is classified under the same rule as the HTML
+                    # report's tail -- at most max_gap words on each side -- so a long
+                    # unshared ending is not dumped into the table word by word.
+                    in_reach = (matched and len(gap_tokens1) <= max_gap and len(gap_tokens2) <= max_gap
+                                and (gap_tokens1 or gap_tokens2))
+                else:
+                    matched = True
+                    in_reach = (1 <= len(gap_tokens1) <= max_gap) or (1 <= len(gap_tokens2) <= max_gap)
+                if in_reach:
                     # Same classification the HTML uses, so the report and the visual no
                     # longer disagree about what is a bridge and what is a spelling variant.
                     kind, _ = classify_gap(gap_tokens1, gap_tokens2, fuzz_threshold)
