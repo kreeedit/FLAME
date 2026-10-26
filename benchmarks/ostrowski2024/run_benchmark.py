@@ -9,8 +9,10 @@ Steps:
   2. build the chain-level segments and distractors (build_segments.py);
   3. run flame.py's engine (Flame.load_corpus + compute_similarity_matrix) in
      inter-corpus mode, every Dk file against every KCh file;
-  4. score detected Dk-KCh pairs against the gold standard at every threshold
-     0.05-0.40 (step 0.01) and at the Otsu threshold flame.py selects itself.
+  4. score detected Dk-KCh pairs against the gold standard at the article's
+     threshold, 0.28 (Table 1, once per normalization-layer setting A0-A3), and
+     at every threshold 0.05-0.40 in steps of 0.01 (Table 2 takes each
+     configuration's best).
 
 Writes results/table1.csv, results/table2.csv, results/run.json (and
 results/grid.csv with --grid). Nothing in flame.py is changed or monkey-patched;
@@ -67,9 +69,21 @@ ABLATIONS = [
     ('- fine tokens (vocab 200)', dict(vocab_size=200, ngram=5, n_out=2)),
     ('- subword (vocab_size auto)', dict(vocab_size='auto', ngram=5, n_out=2)),
 ]
-CLI_DEFAULTS = dict(vocab_size=flame.DEFAULT_PARAMS['vocab_size'],
-                    ngram=flame.DEFAULT_PARAMS['ngram'],
-                    n_out=flame.DEFAULT_PARAMS['n_out'])
+# The article fixes the threshold at 0.28. Otsu's automatic threshold assumes a
+# bimodal score distribution; on this benchmark the non-zero scores are
+# unimodal, so it is not used.
+THRESHOLD = 0.28
+
+# Optional normalization layers of flame.py, aimed at dialectal spelling (f/v,
+# consonant doubling, diphthongs). A0 is the article's setting. A3 also lets
+# auto_tune pick ngram/n_out (Flame.auto_tune_parameters), as -auto_tune does.
+LAYERS = [
+    ('A0', 'none', dict()),
+    ('A1', 'bigram', dict(bigram_normalization_enabled=True)),
+    ('A2', 'bigram+phonetic', dict(bigram_normalization_enabled=True, phonetic_reduction_enabled=True)),
+    ('A3', 'bigram+phonetic+auto_tune', dict(bigram_normalization_enabled=True, phonetic_reduction_enabled=True,
+                                             auto_tune=True)),
+]
 
 THRESHOLDS = [round(t, 3) for t in np.arange(0.05, 0.401, 0.01)]
 
@@ -159,8 +173,13 @@ def make_args(dk, kch, overrides):
     return types.SimpleNamespace(**params)
 
 
-def run_flame(dk, kch, overrides):
-    """Runs the scoring core of flame.py once and returns the analyzer (or None)."""
+def run_flame(dk, kch, overrides, after_tune=None):
+    """Runs the scoring core of flame.py once and returns the analyzer (or None).
+
+    Mirrors flame.py's main(): load_corpus, auto_tune_parameters when
+    `auto_tune` is set, then compute_similarity_matrix. `after_tune` overrides
+    arguments after the sweep (used to hold n_out at 0 for the contiguous
+    variant while keeping the swept ngram)."""
     args = make_args(dk, kch, overrides)
     with tempfile.TemporaryDirectory() as tmp:
         analyzer = flame.Flame(args=args, tmp_dir=tmp)
@@ -169,13 +188,12 @@ def run_flame(dk, kch, overrides):
             analyzer.load_corpus()
             if not analyzer.corpus:
                 return None
+            if analyzer.args.auto_tune:
+                analyzer.auto_tune_parameters()
+            for k, v in (after_tune or {}).items():
+                setattr(analyzer.args, k, v)
             analyzer.compute_similarity_matrix()
     return analyzer
-
-
-def otsu_threshold(analyzer):
-    with contextlib.redirect_stdout(io.StringIO()):
-        return analyzer._determine_auto_threshold(method='otsu')
 
 
 def pair_scores(analyzer):
@@ -277,7 +295,7 @@ def r2(x):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--xml', help='local copy of the evaluation set (default: download from Zenodo)')
-    ap.add_argument('--grid', action='store_true', help='also rerun the full grid search (~10 min)')
+    ap.add_argument('--grid', action='store_true', help='also rerun the full grid search (~10-15 min)')
     a = ap.parse_args()
 
     random.seed(SEED)
@@ -296,44 +314,40 @@ def main():
         an = run_flame(dk, kch, cfg)
         scores = pair_scores(an)
         best, curve = best_on_grid(scores, gold, links)
-        otsu = otsu_threshold(an)
         runs[label] = dict(config={k: v for k, v in cfg.items()}, bpe_vocab_size=bpe_vocab_size(an),
-                           best=best, otsu=evaluate(scores, gold, links, otsu),
-                           at_0_28=evaluate(scores, gold, links, 0.28), scores=scores)
-        b = best
-        print(f"{label:40s} vocab={runs[label]['bpe_vocab_size']:>4}  best@{b['threshold']:.2f} "
-              f"P={b['P']:.3f} R={b['R']:.3f} F1={b['F1']:.3f} TP={b['TP']} FP={b['FP']}  "
-              f"| Otsu@{otsu:.4f} P={runs[label]['otsu']['P']:.3f} R={runs[label]['otsu']['R']:.3f} "
-              f"F1={runs[label]['otsu']['F1']:.3f}")
+                           ngram=an.args.ngram, n_out=an.args.n_out,
+                           best=best, at_threshold=evaluate(scores, gold, links, THRESHOLD), scores=scores)
+        b, t = best, runs[label]['at_threshold']
+        print(f"{label:44s} vocab={runs[label]['bpe_vocab_size']:>4} ngram={an.args.ngram} n_out={an.args.n_out} "
+              f"best@{b['threshold']:.2f} P={b['P']:.3f} R={b['R']:.3f} F1={b['F1']:.3f} "
+              f"| @{THRESHOLD} 19: F1={t['F1_lw']:.3f}  23: F1={t['F1']:.3f}")
         return runs[label]
 
     for label, cfg in ABLATIONS:
         run(label, cfg)
-    run('FLAME CLI defaults (vocab auto, ngram 6, n_out 1)', CLI_DEFAULTS)
+    for tag, layers, extra in LAYERS[1:]:
+        run(f"FLAME (vocab 35, ngram 5, n_out 2), {tag} {layers}", {**OPERATING_POINT, **extra})
 
     op = runs[ABLATIONS[0][0]]
-    defaults = runs['FLAME CLI defaults (vocab auto, ngram 6, n_out 1)']
 
-    # ---- Table 1: both gold sets. literal_weak_19 is the subset Ostrowski's
-    # baseline figures cover; all_23 adds the four non-literal pairs.
+    # ---- Table 1: both gold sets at the fixed threshold. literal_weak_19 is the
+    # subset Ostrowski's baseline figures cover; all_23 adds the four
+    # non-literal pairs. One FLAME row pair per normalization-layer setting.
     t1 = RESULTS_DIR / 'table1.csv'
     with open(t1, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
-        w.writerow(['system', 'gold_set', 'threshold', 'P', 'R', 'F1', 'pairs_found', 'gold_pairs',
-                    'detected', 'FP', 'source'])
+        w.writerow(['system', 'layers', 'ngram', 'n_out', 'gold_set', 'threshold', 'P', 'R', 'F1',
+                    'pairs_found', 'gold_pairs', 'detected', 'FP', 'source'])
         for name, p, r, f1, n in QUOTED_BASELINES:
-            w.writerow([name, 'literal_weak_19', '', r2(p), r2(r), r2(f1), n, 19, '', '', 'quoted'])
-
-        def flame_rows(name, res, thr_fmt):
-            thr = thr_fmt.format(res['threshold'])
-            w.writerow([name, 'literal_weak_19', thr, r2(res['P_lw']), r2(res['R_lw']), r2(res['F1_lw']),
-                        res['TP_lw'], 19, res['detected'], res['FP'], 'this run'])
-            w.writerow([name, 'all_23', thr, r2(res['P']), r2(res['R']), r2(res['F1']),
-                        res['TP'], 23, res['detected'], res['FP'], 'this run'])
-
-        flame_rows('FLAME (vocab 35, ngram 5, n_out 2), best-F1 threshold', op['best'], '{:.2f}')
-        flame_rows('FLAME (vocab 35, ngram 5, n_out 2), Otsu threshold', op['otsu'], '{:.4f}')
-        flame_rows('FLAME CLI defaults (vocab auto, ngram 6, n_out 1), Otsu threshold', defaults['otsu'], '{:.4f}')
+            w.writerow([name, '', '', '', 'literal_weak_19', '', r2(p), r2(r), r2(f1), n, 19, '', '', 'quoted'])
+        for tag, layers, _ in LAYERS:
+            rr = op if tag == 'A0' else runs[f"FLAME (vocab 35, ngram 5, n_out 2), {tag} {layers}"]
+            res = rr['at_threshold']
+            name = f"FLAME (vocab 35), {tag}"
+            w.writerow([name, layers, rr['ngram'], rr['n_out'], 'literal_weak_19', r2(THRESHOLD), r2(res['P_lw']),
+                        r2(res['R_lw']), r2(res['F1_lw']), res['TP_lw'], 19, res['detected'], res['FP'], 'this run'])
+            w.writerow([name, layers, rr['ngram'], rr['n_out'], 'all_23', r2(THRESHOLD), r2(res['P']),
+                        r2(res['R']), r2(res['F1']), res['TP'], 23, res['detected'], res['FP'], 'this run'])
 
     # ---- Table 2: ablation on all 23 pairs, each row at its own best-F1 threshold
     t2 = RESULTS_DIR / 'table2.csv'

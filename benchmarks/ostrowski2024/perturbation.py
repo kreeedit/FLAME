@@ -19,14 +19,26 @@ Dk and KCh sides of a gold pair align one-to-one, and that flame.classify_gap
 calls a 'variant' at flame.py's default fuzz_threshold. The Dk side is never
 perturbed.
 
-Two systems are compared at the threshold each reaches its best F1 on the clean
-data (Table 2): FLAME at the operating point (vocab 35, ngram 5, n_out 2,
-threshold 0.28) and the same pipeline with contiguous n-grams (n_out 0,
-threshold 0.12). For each rate and seed the full pipeline is rerun, BPE training
-included, and recall over the 23 gold pairs is recorded.
+Four normalization-layer settings are run (run_benchmark.LAYERS):
 
-Writes results/perturbation.csv (one row per system, rate, seed) and
-results/perturbation.png (mean recall with min-max band over the seeds).
+  A0  none                         (the article's setting)
+  A1  bigram normalization
+  A2  bigram + phonetic reduction
+  A3  bigram + phonetic + auto_tune (ngram/n_out from Flame.auto_tune_parameters)
+
+In each, two systems are compared: FLAME (vocab 35, ngram 5, n_out 2) at the
+article's fixed threshold 0.28, and the same pipeline with contiguous n-grams
+(n_out 0) at 0.12, the threshold where it reaches its best F1 on clean text
+(Table 2). In A3 the contiguous variant takes the swept ngram and keeps n_out 0.
+Both systems' recall and precision at 0.28 are recorded too (`recall_at_0_28`,
+`precision_at_0_28`). For
+each rate and seed the full pipeline is rerun, BPE training included, and
+recall over the 23 gold pairs is recorded.
+
+Writes results/perturbation.csv (one row per run, system, rate, seed) and
+results/perturbation.png: the run with the largest mean recall gap
+(FLAME - contiguous) drawn in full, with a min-max band over the seeds, and the
+other runs as faint lines.
 """
 import argparse
 import csv
@@ -47,9 +59,10 @@ import flame  # noqa: E402
 
 RATES = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 SEEDS = [42, 43, 44, 45, 46]
+# (name, configuration, threshold, arguments forced after the auto_tune sweep)
 SYSTEMS = [
-    ('FLAME (gapped, n_out 2)', dict(vocab_size=35, ngram=5, n_out=2), 0.28),
-    ('Contiguous (n_out 0)', dict(vocab_size=35, ngram=5, n_out=0), 0.12),
+    ('FLAME (gapped, n_out 2)', dict(vocab_size=35, ngram=5, n_out=2), rb.THRESHOLD, None),
+    ('Contiguous (n_out 0)', dict(vocab_size=35, ngram=5, n_out=0), 0.12, dict(n_out=0)),
 ]
 LETTERS = 'abcdefghijklmnopqrstuvwxyz'
 CONSONANTS = set('bcdfghjklmnpqrstvwxz')
@@ -140,25 +153,47 @@ def main():
                 for p in sorted(kch.glob('*.txt')):
                     (noisy / p.name).write_text(perturb_text(p.read_text(encoding='utf-8'), rate, rng, variants),
                                                 encoding='utf-8')
-                for name, cfg, thr in SYSTEMS:
-                    an = rb.run_flame(dk, noisy, cfg)
-                    r = rb.evaluate(rb.pair_scores(an), gold, links, thr)
-                    rows.append(dict(system=name, rate=rate, seed=seed, threshold=thr, recall=round(r['R'], 4),
-                                     precision=round(r['P'], 4), TP=r['TP'], FP=r['FP']))
-            summary = '  '.join(f"{n}: R={np.mean([x['recall'] for x in rows if x['system'] == n and x['rate'] == rate]):.3f}"
-                                for n, _, _ in SYSTEMS)
-            print(f"rate {rate:.2f}  {summary}")
+                for run, layers, extra in rb.LAYERS:
+                    for name, cfg, thr, after in SYSTEMS:
+                        an = rb.run_flame(dk, noisy, {**cfg, **extra}, after_tune=after if extra.get('auto_tune') else None)
+                        scores = rb.pair_scores(an)
+                        r = rb.evaluate(scores, gold, links, thr)
+                        r28 = rb.evaluate(scores, gold, links, rb.THRESHOLD)
+                        rows.append(dict(run=run, layers=layers, system=name, rate=rate, seed=seed, threshold=thr,
+                                         ngram=an.args.ngram, n_out=an.args.n_out,
+                                         recall=round(r['R'], 4), precision=round(r['P'], 4), TP=r['TP'], FP=r['FP'],
+                                         recall_at_0_28=round(r28['R'], 4), precision_at_0_28=round(r28['P'], 4)))
+            for run, _, _ in rb.LAYERS:
+                summary = '  '.join(f"{n.split(' ')[0]} R={_mean(rows, run, n, rate, 'recall'):.3f}"
+                                    for n, _, _, _ in SYSTEMS)
+                print(f"{run} rate {rate:.2f}  {summary}")
 
     out = rb.RESULTS_DIR / 'perturbation.csv'
     with open(out, 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    plot(rows, rb.RESULTS_DIR / 'perturbation.png')
+    best = best_run(rows)
+    plot(rows, best, rb.RESULTS_DIR / 'perturbation.png')
+    print(f"Best run (largest mean recall gap FLAME - contiguous): {best}")
     print(f"Wrote {out.relative_to(rb.REPO)} and results/perturbation.png")
 
 
-def plot(rows, path):
+def _mean(rows, run, system, rate, key):
+    return float(np.mean([r[key] for r in rows if r['run'] == run and r['system'] == system and r['rate'] == rate]))
+
+
+def best_run(rows):
+    """The run whose mean recall gap FLAME - contiguous, averaged over the rates, is largest."""
+    flame_name, contiguous_name = SYSTEMS[0][0], SYSTEMS[1][0]
+
+    def gap(run):
+        return np.mean([_mean(rows, run, flame_name, x, 'recall') - _mean(rows, run, contiguous_name, x, 'recall')
+                        for x in RATES])
+    return max((run for run, _, _ in rb.LAYERS), key=gap)
+
+
+def plot(rows, best, path):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -166,32 +201,42 @@ def plot(rows, path):
     ink, muted, grid = '#0b0b0b', '#52514e', '#e4e3df'
     colors = ['#2a78d6', '#eb6834']
     markers = ['o', 's']
-    fig, ax = plt.subplots(figsize=(7, 4.2), dpi=150)
+    layers_of = {run: layers for run, layers, _ in rb.LAYERS}
+    fig, ax = plt.subplots(figsize=(7.4, 4.4), dpi=150)
     fig.patch.set_facecolor('#fcfcfb')
     ax.set_facecolor('#fcfcfb')
-    for (name, _, thr), color, marker in zip(SYSTEMS, colors, markers):
-        mean = [np.mean([r['recall'] for r in rows if r['system'] == name and r['rate'] == x]) for x in RATES]
-        lo = [min(r['recall'] for r in rows if r['system'] == name and r['rate'] == x) for x in RATES]
-        hi = [max(r['recall'] for r in rows if r['system'] == name and r['rate'] == x) for x in RATES]
+    for run, _, _ in rb.LAYERS:
+        if run == best:
+            continue
+        for (name, _, _, _), color in zip(SYSTEMS, colors):
+            ax.plot(RATES, [_mean(rows, run, name, x, 'recall') for x in RATES], color=color, linewidth=1,
+                    alpha=0.25)
+    for (name, _, thr, _), color, marker in zip(SYSTEMS, colors, markers):
+        sel = [r for r in rows if r['run'] == best and r['system'] == name]
+        mean = [_mean(rows, best, name, x, 'recall') for x in RATES]
+        lo = [min(r['recall'] for r in sel if r['rate'] == x) for x in RATES]
+        hi = [max(r['recall'] for r in sel if r['rate'] == x) for x in RATES]
         ax.fill_between(RATES, lo, hi, color=color, alpha=0.15, linewidth=0)
         ax.plot(RATES, mean, color=color, linewidth=2, marker=marker, markersize=6,
                 markeredgecolor='#fcfcfb', markeredgewidth=1.5, label=f"{name}, threshold {thr:.2f}")
         ax.annotate(f"{mean[-1]:.2f}", (RATES[-1], mean[-1]), xytext=(6, 0), textcoords='offset points',
                     va='center', fontsize=9, color=ink)
+    ax.plot([], [], color=muted, linewidth=1, alpha=0.4, label='other layer settings (means)')
     ax.set_xlabel('Perturbation rate r (share of KCh words edited)', color=muted)
     ax.set_ylabel('Recall over the 23 gold pairs', color=muted)
     ax.set_ylim(0, 1)
     ax.set_xlim(-0.01, RATES[-1] + 0.03)
     ax.grid(axis='y', color=grid, linewidth=0.8)
     ax.set_axisbelow(True)
-    for s in ('top', 'right'):
-        ax.spines[s].set_visible(False)
-    for s in ('left', 'bottom'):
-        ax.spines[s].set_color(grid)
+    for side in ('top', 'right'):
+        ax.spines[side].set_visible(False)
+    for side in ('left', 'bottom'):
+        ax.spines[side].set_color(grid)
     ax.tick_params(colors=muted)
-    ax.legend(frameon=False, loc='upper right', fontsize=9, labelcolor=ink)
-    ax.set_title(f"Recall vs. synthetic noise (mean of {len(SEEDS)} seeds, band = min-max)",
-                 color=ink, fontsize=11, loc='left')
+    ax.legend(frameon=False, loc='upper right', fontsize=8.5, labelcolor=ink)
+    described = 'no optional layers' if layers_of[best] == 'none' else layers_of[best]
+    ax.set_title(f"Recall vs. synthetic noise, run {best} ({described}); "
+                 f"mean of {len(SEEDS)} seeds, band = min-max", color=ink, fontsize=10, loc='left')
     fig.tight_layout()
     fig.savefig(path, facecolor=fig.get_facecolor())
     plt.close(fig)
