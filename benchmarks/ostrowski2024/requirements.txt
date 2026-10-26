@@ -1,0 +1,2 @@
+# Extra dependency for perturbation.py (the plot). Everything else comes from the top-level requirements.txt.
+matplotlib
