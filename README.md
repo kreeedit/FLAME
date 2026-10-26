@@ -18,18 +18,96 @@ A downloadable demo of the HTML output can be found in the repository (`text_com
   <img src="flame-little-flame.gif" width="200" alt="FLAME animation" />
 </p>
 
-## How It Works
+## Method
 
-For a sequence of words (an n-gram), FLAME generates variants by omitting tokens, so underlying
-similarity survives when the surface forms do not.
+Formulaic language consists of clauses that recur with variation across documents. It is a
+known difficulty for historical linguistics (Korkiakangas 2024), and in medieval texts the
+variation comes on top of unstandardized spelling, abbreviation, allographs, and recognition
+errors. FLAME is built to tolerate that variation. It runs five stages in a fixed order. Each item below names the CLI parameter that controls it
+and links the code that implements it, so you can check the description against the source. The
+design rationale and the argument for each stage are in the accompanying article (Kovács, in
+preparation for *Digital Scholarship in the Humanities*, §§5–9).
+
+**1. Layered character normalization** ([`flame.py`: `Flame.load_corpus()`](flame.py#L664),
+[`AdaptiveAlphabet.learn_mappings()`](flame.py#L252), tables
+[`MUFI_ONE_TO_MANY` / `MUFI_ONE_TO_ONE`](flame.py#L1075)). The text is lower-cased. Then ligatures
+and digraph characters are expanded with a one-to-many table (æ→ae, ß→ss, þ→th, ﬁ→fi, …), and a
+one-to-one table based on the MUFI recommendation (Haugen 2009) maps allographs to their base
+letters (ſ→s, ꝛ→r, ꝼ→f, ᵹ→g, ƿ→w, …). The one-to-one mapping is a vectorized lookup table over the
+Unicode Basic Multilingual Plane. On top of it, an adaptive learner finds the characters outside
+the target alphabet (`char_norm_alphabet`, default a–z) that occur at least `char_norm_min_freq`
+times. If a character's Unicode compatibility decomposition (NFKD) begins with a letter of the
+alphabet, the learner maps the character to that letter (é→e, ñ→n) and prints each rule it adds.
+Any character still unaccounted for becomes a space, that is, a token boundary. Inflection and
+spelling variation (u/v, i/j, doubled consonants, *vredens*/*friddens*) are deliberately
+**not** normalized here. The tokenizer and the fingerprint absorb them later, and the report shows
+them. The optional `bigram_normalization_enabled` and `phonetic_reduction_enabled` layers fold more
+aggressively. Both are off by default.
+
+**2. Subword tokenization** ([`suggest_vocab_size_optimized()`](flame.py#L69), BPE training in
+[`Flame.load_corpus()`](flame.py#L791)). A Byte-Pair-Encoding tokenizer (Sennrich et al. 2016;
+Hugging Face `tokenizers`) is trained on the normalized corpus, and every document becomes a
+sequence of subword IDs. `-vocab_size` takes an integer or `auto`. With `auto`, words with frequency
+of at least `vocab_min_word_freq` are sorted, then sorted again reversed. The longest common prefix
+of each adjacent pair (2–6 characters) becomes a prefix or suffix candidate, weighted by the two
+words' frequencies. The vocabulary size is the number of top-ranked affixes that covers
+`vocab_coverage` (default 0.85) of all affix occurrences, plus 256. It is capped at the number of
+distinct words plus 256.
+
+**3. Leave-n-out (gapped) n-gram fingerprint** ([`Flame.leave_n_out_grams()`](flame.py#L958)). The
+token sequence is cut into overlapping windows of `-ngram` tokens. From every window, FLAME keeps
+each of the C(n, k) subsets of k = n − n_out positions (`-n_out` positions dropped). A window
+therefore yields
+
+&nbsp;&nbsp;&nbsp;&nbsp;C(n, n − n_out) = n! / ((n − n_out)! · n_out!) sub-grams,
+
+and a document of L tokens yields C(n, n − n_out) · (L − n + 1). For example, there are 6 for
+n = 6, n_out = 1 (the defaults) and 10 for n = 5, n_out = 2. Each sub-gram (t₀ … t₍ₖ₋₁₎) is hashed
+as Σ tⱼ·Vʲ mod (2⁶¹ − 1), a Rabin–Karp-style polynomial hash (Karp and Rabin 1987) over the token
+vocabulary size V. The hash is evaluated for all windows at once as one matrix product per
+position subset. Robustness follows from this construction (article §7.3). A single substituted
+token at position p breaks **every** contiguous n-gram whose window spans p. With n_out ≥ 1, each
+window that spans p still has at least one kept-position subset that skips p, so at least one
+gapped sub-gram per affected window is shared by both passages. BPE limits the number of tokens
+that a spelling variant, insertion, or deletion disturbs, and the gapped windows bridge those
+tokens. The price is specificity, because gapped features are shared by chance more often. That
+trade-off is why `ngram` and `n_out` are exposed.
+
+**4. Similarity and automatic threshold** ([`Flame.compute_similarity_matrix()`](flame.py#L989),
+[`Flame._determine_auto_threshold()`](flame.py#L937)). Fingerprints become a sparse
+document-by-feature count matrix. The matrix is TF-IDF weighted (scikit-learn `TfidfTransformer`,
+fitted on both corpora together in two-directory mode), and the cosine similarity is computed in
+sparse form, so pairs with no shared feature are never stored. With `-similarity_threshold auto`
+(the default), Otsu's method (Otsu 1979) is applied to the **non-zero** scores only. This removes
+the mass of pairs that share nothing, a distribution so heavily skewed that a two-class split of
+the raw scores would only separate zero from non-zero. `-auto_threshold_method percentile` uses
+the 99th percentile instead, and a number given to `-similarity_threshold` overrides both. The
+automatic threshold is a starting point, not a guarantee. On the benchmark below, at the best
+configuration, Otsu lands far inside the background (see [Evaluation](#evaluation)).
+
+**5. Alignment report** ([`SimilarityVisualizer.highlight_similarities()`](flame.py#L1339),
+[`_render_gap_html()`](flame.py#L1307), [`classify_gap()`](flame.py#L1123),
+[`generate_linguistic_summary_tsv()`](flame.py#L2196)). For every pair above the threshold, the
+shared passages are re-aligned on the **unnormalized** display tokens. The fingerprints are lossy
+and unordered, so they are not used here. The aligner is `difflib.SequenceMatcher`, a
+Ratcliff–Obershelp longest-matching-block alignment (Ratcliff and Metzener 1988), run on a
+lower-cased, alphanumeric-only view. Highlights are mapped back to the text as transcribed. Each
+short gap between two matching blocks (at most `max_gap_words` per side) is classified on
+spelling-folded forms: an **insertion** if one side is empty, an **orthographic variant** if the
+fuzzy ratio is at least `fuzz_threshold` (default 0.70), and otherwise a **bridge**, where the two
+texts genuinely diverge. The same classification, aggregated over all reported pairs, is written
+to `linguistic_variations.tsv`, the corpus-wide table of linguistic variants. Text before the first
+or after the last matching block is shown unmarked and not classified.
+
+### Worked example
 
 Take the charter opening *"In nomine sancte et individue trinitatis amen"*:
 
-1.  **Generate n-grams**: slide a window of `ngram` words across the text.
+1.  **Generate n-grams**: slide a window of `ngram` tokens across the text.
 2.  **Create LNO variants**: remove `n_out` tokens from each window. From the 5-gram `[In, nomine, sancte, et, individue]` come `[_, nomine, sancte, et, individue]`, `[In, _, sancte, et, individue]`, and so on.
-3.  **Hash**: each variant becomes an integer via a vectorised polynomial rolling hash.
+3.  **Hash**: each variant becomes an integer via a vectorized polynomial hash.
 4.  **Similarity**: cosine similarity between documents over their shared TF-IDF-weighted feature hashes.
-5.  **Visualise**: interactive reports highlight the matches in their original context.
+5.  **Visualize**: interactive reports highlight the matches in their original context.
 
 ### Method Comparison
 
@@ -43,9 +121,136 @@ skip-grams for historical text.
 | **Skip-gram**| `In nomine sancte et individue` | `[' In', ' nomine', ' sancte', ' et', ' individue']` | `[In sancte]`, `[nomine et]` | ~0.4 | Loses word order and creates noisy, out-of-context pairs. |
 | (n=2, k=1) | `In dei nomine sancte et` | `[' In', ' dei', ' nomine', ' sancte', ' et']` | `[In nomine]`, `[dei sancte]` | ~0.3 | High noise, low contextual accuracy. |
 | **FLAME** | `In nomine sancte et individue` | `[' In', ' nom', 'ine', ' sanct', 'e', ' et', ' in', 'di', 'vid', 'ue']` | `[nomine sancte et _]`, `[In _ sancte et individue]`... | ~0.95 | **High flexibility.** Captures whole-word and sub-word variations. |
-| **(LNO-gram + Subword)** | `In dei nomine sancte et` | `[' In', ' dei', ' nom', 'ine', ' sanct', 'e', ' et']` | `[dei nomine sancte et _]`... | ~0.90 | **Robust.** Matches novel words or spellings by comparing their constituent parts. |
+| **(LNO-gram + Subword)** | `In dei nomine sancte et` | `[' In', ' dei', ' nom', 'ine', ' sanct', 'e', ' et']` | `[dei nomine sancte et _]`... | ~0.90 | **Robust.** Matches unseen words or spellings by comparing their constituent parts. |
 
 *Where `n` is the window size, `k` is the number of skips, and `r` is the number of removed tokens. Match scores are illustrative.*
+
+---
+
+## Evaluation
+
+Every number in this section is regenerated by
+`python benchmarks/ostrowski2024/run_benchmark.py` (Tables 1–2) and
+`python benchmarks/ostrowski2024/perturbation.py` (noise curve). The exceptions are the three
+rows quoted from Ostrowski (2024a). See [`benchmarks/ostrowski2024/`](benchmarks/ostrowski2024/)
+for the dataset, the exact settings, and the machine-readable results.
+
+### Benchmark
+
+The gold standard is that of Ostrowski (2024a, 2024b). It covers two Ripuarian (Rhenish Middle
+German) incunabula printed in Cologne and transcribed by HTR: the *Doernenkrantz van Collen* (Dk,
+1490) and the *Koelhoffsche Chronik* (KCh, 1499). Ostrowski annotated **23 cross-text reuse pairs**
+and graded them as literal (13), weak literal (6), or non-literal (4). Each annotated passage is
+rebuilt from its full `prev`/`next` chain of sub-segments. Then **492 distractor segments** (113 Dk,
+379 KCh) are added from unannotated text, so that precision is measured against realistic
+background. FLAME runs in two-directory mode, comparing every Dk segment with every KCh segment
+(135 × 398 = 53,730 pairs). A detection is a true positive only if it is one of the 23 gold pairs.
+Dataset: <https://doi.org/10.5281/zenodo.13378221> (CC BY-SA 4.0; downloaded and MD5-checked by the
+script, not redistributed here).
+
+### Results
+
+**Table 1.** Pair-level detection on the 19 literal and weak-literal pairs of the Ostrowski (2024)
+benchmark (492 distractors).
+
+| System | P | R | F1 | pairs found |
+|---|---|---|---|---|
+| Passim (Ostrowski 2024) | 1.00 | 0.26 | 0.42 | 5 |
+| BLAST (Ostrowski 2024) | 0.38 | 0.26 | 0.31 | 5 |
+| TextPAIR (Ostrowski 2024) | 0.75 | 0.16 | 0.26 | 3 |
+| FLAME (gapped fingerprint + TF-IDF) | 0.92 | 0.63 | 0.75 | 12 |
+
+FLAME is reported at its best-F1 operating point (vocab 35, ngram 5, n_out 2, threshold 0.28). The
+Passim (Smith et al. 2014), BLAST, and TextPAIR (Gladstone 2018) figures are those reported by
+Ostrowski (2024a) for the literal/weak-literal subset, run as open retrieval over the full corpus,
+so the comparison is indicative rather than strictly controlled. **The operating point was
+selected on these same gold pairs**, as the best cell of a 459-configuration × 36-threshold grid,
+and there is no held-out split. The FLAME row is therefore an in-sample upper bound. The article's
+protocol (§10.2) also names TRACER (Büchler et al. 2014) as a baseline. TRACER has not been run,
+and no TRACER figure is reported.
+
+**FLAME at the same configuration, by gold set.**
+
+| Gold set | P | R | F1 | pairs found / gold |
+|---|---|---|---|---|
+| 19 literal + weak-literal pairs (baseline-comparable subset) | 0.92 | 0.63 | 0.75 | 12 / 19 |
+| all 23 pairs (incl. 4 non-literal, allusive) | 0.92 | 0.52 | 0.67 | 12 / 23 |
+| 19 literal + weak-literal pairs, Otsu threshold (0.063) instead of 0.28 | 0.00 | 1.00 | 0.00 | 19 / 19 |
+
+The four non-literal pairs reuse sense without sharing surface form. FLAME is a
+surface-and-subword method, so by design it does not recover them, and Ostrowski's baseline figures
+do not cover them either. The 19-pair subset is therefore the comparable basis. The four pairs
+are Dk F5r2-1 / KCh a4v1-1 (Regest 4), Dk F6v1-1 and Dk F7r-1 / KCh b1r6-1 (both Regest 21), and
+Dk F6v3-1 / KCh b1r7-1 (Regest 22). The regest numbers follow Ostrowski (2024c). Both rows count
+the same 13 detections: 12 correct pairs and 1 false positive involving a background segment.
+
+The third row shows the unselected default. Otsu's method on the non-zero scores selects 0.063
+there. With 35 BPE units, most segment pairs share some gapped feature, so the non-zero scores are
+themselves mostly background, and the cut accepts 19,878 of the 53,730 pairs (P below 0.01). With
+flame.py's CLI defaults (vocab auto, ngram 6, n_out 1), Otsu selects 0.046 and finds 2 of the 19
+pairs. On this short, HTR-noisy material, the threshold and the token granularity have to be set
+by the user. All rows, including the CLI-default ones, are in
+[`results/table1.csv`](benchmarks/ostrowski2024/results/table1.csv).
+
+**Table 2.** Ablation on all 23 pairs, each configuration at its own best-F1 threshold.
+
+| Configuration | P | R | F1 |
+|---|---|---|---|
+| FLAME (vocab 35, ngram 5, n_out 2) | 0.92 | 0.52 | 0.67 |
+| − gapping (n_out = 0, contiguous) | 0.69 | 0.48 | 0.56 |
+| − fine tokens (vocab 200) | 0.50 | 0.30 | 0.38 |
+| − subword (word-level, vocab ≈ 360) | 0.62 | 0.22 | 0.32 |
+
+Table 2 is scored on all 23 pairs, while Table 1 uses the 19-pair subset. That is why its first
+row and Table 1's FLAME row differ for the same run. The thresholds selected for the four rows
+are 0.28, 0.12, 0.11, and 0.10. The last row keeps the article's label, but it is not a
+word-level tokenizer. It is BPE with `-vocab_size auto`, which flame.py's morphology estimator
+resolves to 360 units on this corpus, and which is also the default setting. On this corpus, the
+estimate is much coarser than the best granularity.
+
+### Robustness to synthetic noise (Task A)
+
+`perturbation.py` injects synthetic noise into every KCh file (reuse chains and distractors). At
+rate *r*, each word is edited with probability *r* by one operation drawn from those that apply to
+it: a character substitution, insertion, or deletion; a u/v or i/j interchange; consonant doubling
+or undoubling; or a swap to an orthographic variant attested in the gold pairs themselves (16
+spellings). The Dk side is left untouched. For every rate and seed, the whole pipeline is rerun,
+BPE training included. Recall over the 23 gold pairs is measured at the threshold each system
+reaches on clean text (Table 2): 0.28 for FLAME and 0.12 for the contiguous variant (n_out 0).
+
+| r | 0.00 | 0.05 | 0.10 | 0.15 | 0.20 | 0.25 | 0.30 |
+|---|---|---|---|---|---|---|---|
+| FLAME (n_out 2), mean recall | 0.52 | 0.50 | 0.47 | 0.44 | 0.41 | 0.39 | 0.43 |
+| contiguous (n_out 0), mean recall | 0.48 | 0.44 | 0.43 | 0.43 | 0.41 | 0.37 | 0.37 |
+
+Mean of seeds 42–46. FLAME's recall is at or above the contiguous variant's at every rate, but by
+at most 0.06 (one to one and a half of the 23 pairs), and the seed-to-seed spread is as large. On
+this benchmark the experiment does **not** show the steep divergence the article (§10.3) predicts.
+Both curves fall gently. A plausible reason is that BPE with 35 units already breaks words into
+very short pieces, so a single edit disturbs few tokens for either variant. Over the same runs,
+FLAME's precision stays between 0.83 and 0.96, against 0.68–0.82 for the contiguous variant
+([`results/perturbation.csv`](benchmarks/ostrowski2024/results/perturbation.csv)).
+
+![Recall vs. synthetic noise](benchmarks/ostrowski2024/results/perturbation.png)
+
+### Example: what the alignment report shows
+
+The Dk passage *Alle ouerschaff . is van gode* and the KCh passage *Alle ouerschaff ind herschapie
+is van gode* instantiate the same proverb (Rom. 13:1; Ostrowski Regest 13). They score a cosine of
+0.54 at the operating point. A contiguous n-gram loses every window that spans the inserted
+*ind herschapie*. In the report, the two matching blocks are highlighted on both sides, and *ind
+herschapie* is marked as an **insertion**, present in KCh only, which isolates the expansion as the
+one substantive difference:
+
+![Alignment report for Dk G5r and KCh r141](benchmarks/ostrowski2024/results/alignment_regest13.png)
+
+The article's second example does not come out as the article describes. That example is Dk *eyn
+Stat des friddens* against KCh *eyn Stat des waren vredens* (Regest 5, cosine 0.28, just above the
+threshold). The pair is detected, but the report aligns only *eyn Stat des*. The divergent
+*friddens* / *waren vredens* follows the last matching block, and the current report leaves such
+trailing text unmarked rather than classifying it as a variant or insertion. This is recorded as a
+known limitation in [CHANGELOG.md](CHANGELOG.md) and
+[`docs/issues/02-alignment-trailing-divergence.md`](docs/issues/02-alignment-trailing-divergence.md).
 
 ---
 
@@ -61,7 +266,7 @@ skip-grams for historical text.
 -   **Flexible Corpus Selection**: takes a directory (searched recursively) or a glob pattern, so a subset of a large corpus can be analysed without copying files — e.g. `./fsdb/DE-LANRWR**/*.htr.txt`.
 -   **Unambiguous File Identity**: reports name every text by its path relative to the input root, so nested corpora that reuse one filename per folder (as *fsdb* does) stay distinguishable. Flat corpora are unaffected.
 -   **Duplicate Detection (optional)**: corpora assembled from editions, archival copies and re-downloads hold the same charter under several names. By default every file found is compared, as a scholar expects from what is on disk; with `deduplicate` FLAME skips files whose text it has already loaded, keeps the shortest-named copy, and prints what it dropped and why.
--   **Automatic Threshold Detection**: Otsu's method on non-zero sparse data picks the similarity cutoff, removing manual guesswork.
+-   **Automatic Threshold Detection**: Otsu's method on the non-zero similarity scores proposes a cutoff. Check it against your corpus: on short, noisy segments it can fall inside the background (see [Evaluation](#evaluation)).
 -   **Clustering (recurring legal formulas)**: groups related pairs by the formula they share — the shared wording found by **gapped local alignment** — so a cluster answers *"these charters use the same legal formula or record the same legal transaction"*, not merely *"these charters are similar"*. Grouping runs on the spelling-folded wording, so `vnd`/`und` and other medieval variants of one formula stay together. See [Clustering](#clustering-recurring-legal-formulas).
 -   **Multi-Format Reporting**: side-by-side HTML comparisons with dynamic fuzzy sliders, a similarity heatmap, a TSV summary of related documents, and a linguistic-variations TSV of alternative spellings and substitutions.
 -   **Modern Tabbed Interface (GUI)**: a tabbed layout (`ttk.Notebook`) separating data configuration, philological fine-tuning, and execution reporting.
@@ -258,6 +463,9 @@ identified by its **path relative to the input root** (see
 
 1. **`dist_mat.npz`**: a SciPy sparse matrix of all pairwise similarity scores, for downstream validation without re-computing features. **Where it lands depends on how FLAME was started:** the GUI writes it, with the other intermediates (`temp_corpus.txt`, `bpe_tokenizer.json`), into the directory it was launched from; a CLI run keeps them in a temporary directory that is **removed when the run ends**. A command-line run therefore leaves the six reports below and nothing else — take the matrix from a GUI run, or from the engine's API with an explicit working directory.
 2. **`text_comparisons_XX.html`**: interactive side-by-side alignment reports, the primary visualisation for philological exploration.
+
+   ![Side-by-side alignment of two papal charters](html_comparison.png)
+
 * Synchronized scroll-locking and text matching cross-highlights.
 * A **Live Fuzzy Slider** to adjust, in the browser, which structural bridges count as similar.
 * A **three-way classification** of the words between two matches, by colour and on-page legend:
@@ -600,6 +808,23 @@ named relative to its own root.
 
 ---
 
+## Reproducibility
+
+- **Benchmark:** [`benchmarks/ostrowski2024/`](benchmarks/ostrowski2024/) regenerates every number
+  in [Evaluation](#evaluation): `python benchmarks/ostrowski2024/run_benchmark.py`. Each run writes
+  the git commit, the Python and package versions, the seed, the dataset MD5, and the wall-clock
+  time to `results/run.json`.
+- **Python:** 3.9 or newer (the README's installation minimum). The benchmark results in this
+  repository were produced with Python 3.12.3, numpy 2.5.3, scipy 1.18.1, scikit-learn 1.9.1,
+  scikit-image 0.26.0, and tokenizers 0.23.2. `requirements.txt` does not pin versions.
+- **Parameters:** `python flame.py -h` lists every CLI parameter with its default, and the
+  defaults live in `DEFAULT_PARAMS` in `flame.py`. A run is deterministic for a given corpus and
+  parameter set.
+- **Changes:** see [CHANGELOG.md](CHANGELOG.md), including the documented differences between the
+  article draft and the code.
+
+---
+
 ## Acknowledgements
 
 The character normalization components build on principles found in **Anguelos Nicolaou's** library,
@@ -642,6 +867,32 @@ Kovács, T. (2026). *FLAME: Formulaic Language Analysis in Medieval Expressions*
   url       = {https://github.com/kreeedit/FLAME}
 }
 ```
+
+---
+
+## References
+
+Büchler, M., Burns, P. R., Müller, M., Franzini, E., & Franzini, G. (2014). Towards a historical text re-use detection. In C. Biemann & A. Mehler (Eds.), *Text Mining: From Ontology Learning to Automated Text Processing Applications* (pp. 221–238). Springer. https://doi.org/10.1007/978-3-319-12655-5_11
+
+Gladstone, C. (2018). TextPAIR: A new high-performance sequence aligner. *ARTFL Project Research Blog*. https://artfl.blogspot.com/2018/12/textpair-new-high-performance-sequence.html
+
+Haugen, O. E. (Ed.) (2009). *MUFI Character Recommendation: Characters in the Official Unicode Standard and in the Private Use Area for Medieval Texts Written in the Latin Alphabet*, version 3.0. Bergen: Medieval Unicode Font Initiative.
+
+Karp, R. M., & Rabin, M. O. (1987). Efficient randomized pattern-matching algorithms. *IBM Journal of Research and Development*, 31(2), 249–260. https://doi.org/10.1147/rd.312.0249
+
+Korkiakangas, T. (2024). A linguist's viewpoint: Formulaic language as a challenge for historical linguistics. https://doi.org/10.5281/ZENODO.10461847
+
+Ostrowski, A. (2024a). Ansätze und Tools für Historische Text Reuse Detection: Fragmentierter Text Reuse am Beispiel ripuarischer Inkunabeln des 15. Jahrhunderts. In *Digital Humanities im deutschsprachigen Raum 2024 (DHd 2024), Conference Abstracts*. Passau.
+
+Ostrowski, A. (2024b). *Evaluation Set for Historical Text Reuse Detection*. Zenodo. https://doi.org/10.5281/zenodo.13378221
+
+Otsu, N. (1979). A threshold selection method from gray-level histograms. *IEEE Transactions on Systems, Man, and Cybernetics*, 9(1), 62–66.
+
+Ratcliff, J. W., & Metzener, D. E. (1988). Pattern matching: The gestalt approach. *Dr. Dobb's Journal*, 13(7), 46–72.
+
+Sennrich, R., Haddow, B., & Birch, A. (2016). Neural machine translation of rare words with subword units. In *Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)* (pp. 1715–1725). Berlin: Association for Computational Linguistics.
+
+Smith, D. A., Cordell, R., Dillon, E. M., Stramp, N., & Wilkerson, J. (2014). Detecting and modeling local text reuse. In *Proceedings of the IEEE/ACM Joint Conference on Digital Libraries (JCDL)* (pp. 183–192). London: IEEE.
 
 ---
 
