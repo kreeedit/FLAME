@@ -35,25 +35,28 @@ report covers three rounds: the original task, follow-up 1 (0.75 as the headline
 
 ## Commits (oldest first)
 
-1. `1ec8b98` Rename html_comparsion.png to html_comparison.png
-2. `e048cba` Cite the Zenodo concept DOI; list version DOIs for 1.2.0, GIU and 1.0.0
-3. `f21a621` Add Ostrowski (2024) replication package for the article's Tables 1-2
-4. `304be02` run_benchmark: judge git_dirty on the code files only, not on results/
-5. `7b2919a` Add Ostrowski benchmark results produced at 304be02
-6. `a7f1efa` run_benchmark: name false positives in run.json only when there are at most 50
-7. `a1353eb` README: add Method, Evaluation, Reproducibility and References sections
-8. `7e45510` Add CHANGELOG (1.0.0, 1.1.0/GIU, 1.2.0, Unreleased) and issue drafts
-9. `99451b6` Regenerate run.json with the capped false-positive list (13 KB)
-10. `970fe26` Add docs/README_UPDATE_REPORT.md for the maintainer
-11. `849a24c` Report: classify the words after the last matching block
-12. `d6e9266` Benchmark: fixed threshold 0.28 and normalization-layer runs A0-A3
-13. `66fac3a` Benchmark results for threshold 0.28 and layer runs A0-A3; full report
-14. `60d35c8` README: restructure into a short user document; move detail to docs/
-15. `f7dc9da` CHANGELOG and issue drafts: threshold 0.28, layer runs, README move
-16. (this report) Update docs/README_UPDATE_REPORT.md
+1. `1f2e9b3` Rename html_comparsion.png to html_comparison.png
+2. `7ea00a9` Cite the Zenodo concept DOI; list version DOIs for 1.2.0, GIU and 1.0.0
+3. `5beb8b9` Add Ostrowski (2024) replication package for the article's Tables 1-2
+4. `a7ed179` run_benchmark: judge git_dirty on the code files only, not on results/
+5. `97e3f25` Add Ostrowski benchmark results produced at a7ed179
+6. `e30fc81` run_benchmark: name false positives in run.json only when there are at most 50
+7. `6a481ed` README: add Method, Evaluation, Reproducibility and References sections
+8. `188ae14` Add CHANGELOG (1.0.0, 1.1.0/GIU, 1.2.0, Unreleased) and issue drafts
+9. `01f0520` Regenerate run.json with the capped false-positive list (13 KB)
+10. `0396c7c` Add docs/README_UPDATE_REPORT.md for the maintainer
+11. `a3a7b70` Report: classify the words after the last matching block
+12. `65a0b75` Benchmark: fixed threshold 0.28 and normalization-layer runs A0-A3
+13. `5ec3c4c` Benchmark results for threshold 0.28 and layer runs A0-A3; full report
+14. `d31ed40` README: restructure into a short user document; move detail to docs/
+15. `e4251f2` CHANGELOG and issue drafts: threshold 0.28, layer runs, README move
+16. `601e6a7` Update docs/README_UPDATE_REPORT.md for follow-up 2
+17. (final) Refresh run.json and commit references after the commit-message cleanup
 
-The current `results/` were produced at `d6e9266` (`run.json`: `git_dirty: false`, 558 s with
-`--grid`). Later commits touch only documentation.
+The tables, grid and noise results were produced at `65a0b75`. `run.json` was regenerated at
+`601e6a7` (`git_dirty: false`, 564 s with `--grid`), whose benchmark code is identical; every
+table came out byte-identical. The commit messages were cleaned of tool-attribution trailers
+before pushing, which changed all hashes. The hashes above are the rewritten ones.
 
 ## Reproduced vs. article
 

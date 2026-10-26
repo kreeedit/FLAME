@@ -1,5 +1,5 @@
 {
-  "git_commit": "d6e9266e1e0b7f9e2f58353950c1bebf9fa40045",
+  "git_commit": "601e6a7747fa8a0a5376dd48ac29219c52d7bd93",
   "git_dirty": false,
   "python": "3.12.3",
   "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.39",
@@ -15,7 +15,7 @@
     "tqdm": "4.70.1"
   },
   "seed": 42,
-  "wall_clock_seconds": 557.9,
+  "wall_clock_seconds": 564.4,
   "dataset": {
     "doi": "10.5281/zenodo.13378221",
     "file": "Evaluation_Set_for_Historical_Text_Reuse_Detection.xml",
