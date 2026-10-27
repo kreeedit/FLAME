@@ -16,15 +16,15 @@ vocabulary, and renders every match as an interactive side-by-side alignment.
 
 FLAME runs five stages in a fixed order. The full description is in [docs/METHOD.md](docs/METHOD.md), and the design rationale is in Kovács (in preparation).
 
-**1. Character normalization.** Text is lower-cased, ligatures are expanded, and MUFI allographs (ſ→s, ꝛ→r, …) are mapped to base letters (Haugen 2009). An adaptive learner folds any other frequent out-of-alphabet character by its Unicode decomposition (é→e), controlled by `char_norm_alphabet` and `char_norm_min_freq`. Spelling and inflection are left alone unless the optional `bigram_normalization_enabled` and `phonetic_reduction_enabled` layers are switched on ([`Flame.load_corpus()`](flame.py#L664), [`AdaptiveAlphabet.learn_mappings()`](flame.py#L252)).
+**1. Character normalization.** Text is lower-cased, ligatures are expanded, and MUFI allographs (ſ→s, ꝛ→r, …) are mapped to base letters (Haugen 2009). An adaptive learner folds any other frequent out-of-alphabet character by its Unicode decomposition (é→e), controlled by `char_norm_alphabet` and `char_norm_min_freq`. Spelling and inflection are left alone unless the optional `bigram_normalization_enabled` and `phonetic_reduction_enabled` layers are switched on ([`Flame.load_corpus()`](flame.py#L668), [`AdaptiveAlphabet.learn_mappings()`](flame.py#L253)).
 
-**2. Subword tokenization.** A BPE tokenizer (Sennrich et al. 2016) is trained on the normalized corpus. Its size is set by `-vocab_size`, either an integer or `auto`. With `auto`, the size is the number of frequent prefixes and suffixes that cover `vocab_coverage` of affix occurrences, plus 256 ([`suggest_vocab_size_optimized()`](flame.py#L69)).
+**2. Subword tokenization.** A BPE tokenizer (Sennrich et al. 2016) is trained on the normalized corpus. Its size is set by `-vocab_size`, either an integer or `auto`. With `auto`, the size is the number of frequent prefixes and suffixes that cover `vocab_coverage` of affix occurrences, plus 256 ([`suggest_vocab_size_optimized()`](flame.py#L70)).
 
-**3. Gapped fingerprint.** Each window of `-ngram` tokens yields C(n, n − n_out) sub-grams, one for each way of dropping `-n_out` positions. Each sub-gram is hashed with a Rabin–Karp-style polynomial mod 2⁶¹ − 1 (Karp and Rabin 1987). A substituted, inserted, or deleted token breaks every contiguous n-gram that spans it, but at least one gapped sub-gram per affected window survives ([`Flame.leave_n_out_grams()`](flame.py#L958)).
+**3. Gapped fingerprint.** Each window of `-ngram` tokens yields C(n, n − n_out) sub-grams, one for each way of dropping `-n_out` positions. Each sub-gram is hashed with a Rabin–Karp-style polynomial mod 2⁶¹ − 1 (Karp and Rabin 1987). A substituted, inserted, or deleted token breaks every contiguous n-gram that spans it, but at least one gapped sub-gram per affected window survives ([`Flame.leave_n_out_grams()`](flame.py#L962)).
 
-**4. Similarity and threshold.** The fingerprints form a sparse document-by-feature matrix, which is TF-IDF weighted, and pairs are compared by cosine similarity. With `-similarity_threshold auto`, Otsu's method (Otsu 1979) on the non-zero scores proposes the cutoff, which suits bimodal score distributions; `-similarity_threshold <float>` sets it directly ([`Flame.compute_similarity_matrix()`](flame.py#L989)).
+**4. Similarity and threshold.** The fingerprints form a sparse document-by-feature matrix, which is TF-IDF weighted, and pairs are compared by cosine similarity. With `-similarity_threshold auto`, Otsu's method (Otsu 1979) on the non-zero scores proposes the cutoff, which suits bimodal score distributions; `-similarity_threshold <float>` sets it directly ([`Flame.compute_similarity_matrix()`](flame.py#L993)).
 
-**5. Alignment report.** Each pair above the threshold is re-aligned on the original tokens with a Ratcliff–Obershelp matcher (Ratcliff and Metzener 1988). Each short gap is then classified as a bridge, an orthographic variant (`fuzz_threshold`), or an insertion, in the HTML report and in `linguistic_variations.tsv` ([`highlight_similarities()`](flame.py#L1339), [`classify_gap()`](flame.py#L1123)).
+**5. Alignment report.** Each pair above the threshold is re-aligned on the original tokens with a Ratcliff–Obershelp matcher (Ratcliff and Metzener 1988). Each short gap is then classified as a bridge, an orthographic variant (`fuzz_threshold`), or an insertion, in the HTML report and in `linguistic_variations.tsv` ([`highlight_similarities()`](flame.py#L1464), [`classify_gap()`](flame.py#L1127)).
 
 ## Evaluation
 
@@ -104,7 +104,7 @@ python flame.py -input_path './fsdb/DE-LANRWR**/*.htr.txt' -similarity_threshold
 
 ## Outputs
 
-A run writes up to six reports into the directory it was started from (which ones depends on the `gen_*` switches):
+A run writes up to seven reports into the directory it was started from (which ones depends on the `gen_*` switches):
 
 1. **`text_comparisons_XX.html`**: side-by-side alignments with cross-highlighted matches, a similarity filter, and a fuzzy slider. Gaps are marked as **bridge** (the texts diverge), **orthographic variant** (same wording, different spelling), or **insertion** (present on one side only). The earlier document is placed on the left when filenames carry a year.
 
@@ -114,7 +114,8 @@ A run writes up to six reports into the directory it was started from (which one
 3. **`similarity_summary.tsv`**: per document, the related documents and the shared blocks longer than four words.
 4. **`linguistic_variations.tsv`**: every classified gap of every reported pair (`Orthographic Variant`, `Insertion`, `Different Bridge Word`), with the same classification as the HTML.
 5. **`clusters.html`** / **`clusters.tsv`**: the clustering report, one card and one row per recurring formula (see [Clustering](#clustering-recurring-legal-formulas)).
-6. **`dist_mat.npz`**: the sparse similarity matrix. The GUI keeps it in its working directory; a CLI run deletes it with its temporary directory.
+6. **`similarity_spans.jsonl`** (opt-in, `-gen_spans_jsonl`): one JSON line per reported pair, with the alignment of the HTML report as character offsets into each file, for use in other tools. `label_1` / `label_2` hold `[start, end, LABEL]` triples (`MATCH`, `BRIDGE`, `VARIANT`, `INSERTION`), the form doccano reads; `segments` pairs each span with its counterpart and carries its text. Offsets count Unicode characters of the file as read with `encoding='utf-8', newline=''`. Gap spans are trimmed to words, so a gap of punctuation alone has no span.
+7. **`dist_mat.npz`**: the sparse similarity matrix. The GUI keeps it in its working directory; a CLI run deletes it with its temporary directory.
 
 While `gen_clusters` is on (the default), `similarity_summary.tsv` and `linguistic_variations.tsv` carry a `ClusterID` column: second and third column respectively.
 Scripts that read these files by position need updating; reading by header name is unaffected.

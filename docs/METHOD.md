@@ -11,9 +11,9 @@ and links the code that implements it, so you can check the description against 
 design rationale and the argument for each stage are in the accompanying article (Kovács, in
 preparation for *Digital Scholarship in the Humanities*, §§5–9).
 
-**1. Layered character normalization** ([`flame.py`: `Flame.load_corpus()`](../flame.py#L664),
-[`AdaptiveAlphabet.learn_mappings()`](../flame.py#L252), tables
-[`MUFI_ONE_TO_MANY` / `MUFI_ONE_TO_ONE`](../flame.py#L1075)). The text is lower-cased. Then ligatures
+**1. Layered character normalization** ([`flame.py`: `Flame.load_corpus()`](../flame.py#L668),
+[`AdaptiveAlphabet.learn_mappings()`](../flame.py#L253), tables
+[`MUFI_ONE_TO_MANY` / `MUFI_ONE_TO_ONE`](../flame.py#L1079)). The text is lower-cased. Then ligatures
 and digraph characters are expanded with a one-to-many table (æ→ae, ß→ss, þ→th, ﬁ→fi, …), and a
 one-to-one table based on the MUFI recommendation (Haugen 2009) maps allographs to their base
 letters (ſ→s, ꝛ→r, ꝼ→f, ᵹ→g, ƿ→w, …). The one-to-one mapping is a vectorized lookup table over the
@@ -27,8 +27,8 @@ spelling variation (u/v, i/j, doubled consonants, *vredens*/*friddens*) are deli
 them. The optional `bigram_normalization_enabled` and `phonetic_reduction_enabled` layers fold more
 aggressively. Both are off by default.
 
-**2. Subword tokenization** ([`suggest_vocab_size_optimized()`](../flame.py#L69), BPE training in
-[`Flame.load_corpus()`](../flame.py#L791)). A Byte-Pair-Encoding tokenizer (Sennrich et al. 2016;
+**2. Subword tokenization** ([`suggest_vocab_size_optimized()`](../flame.py#L70), BPE training in
+[`Flame.load_corpus()`](../flame.py#L795)). A Byte-Pair-Encoding tokenizer (Sennrich et al. 2016;
 Hugging Face `tokenizers`) is trained on the normalized corpus, and every document becomes a
 sequence of subword IDs. `-vocab_size` takes an integer or `auto`. With `auto`, words with frequency
 of at least `vocab_min_word_freq` are sorted, then sorted again reversed. The longest common prefix
@@ -37,7 +37,7 @@ words' frequencies. The vocabulary size is the number of top-ranked affixes that
 `vocab_coverage` (default 0.85) of all affix occurrences, plus 256. It is capped at the number of
 distinct words plus 256.
 
-**3. Leave-n-out (gapped) n-gram fingerprint** ([`Flame.leave_n_out_grams()`](../flame.py#L958)). The
+**3. Leave-n-out (gapped) n-gram fingerprint** ([`Flame.leave_n_out_grams()`](../flame.py#L962)). The
 token sequence is cut into overlapping windows of `-ngram` tokens. From every window, FLAME keeps
 each of the C(n, k) subsets of k = n − n_out positions (`-n_out` positions dropped). A window
 therefore yields
@@ -56,8 +56,8 @@ that a spelling variant, insertion, or deletion disturbs, and the gapped windows
 tokens. The price is specificity, because gapped features are shared by chance more often. That
 trade-off is why `ngram` and `n_out` are exposed.
 
-**4. Similarity and automatic threshold** ([`Flame.compute_similarity_matrix()`](../flame.py#L989),
-[`Flame._determine_auto_threshold()`](../flame.py#L937)). Fingerprints become a sparse
+**4. Similarity and automatic threshold** ([`Flame.compute_similarity_matrix()`](../flame.py#L993),
+[`Flame._determine_auto_threshold()`](../flame.py#L941)). Fingerprints become a sparse
 document-by-feature count matrix. The matrix is TF-IDF weighted (scikit-learn `TfidfTransformer`,
 fitted on both corpora together in two-directory mode), and the cosine similarity is computed in
 sparse form, so pairs with no shared feature are never stored. With `-similarity_threshold auto`
@@ -69,9 +69,9 @@ method assumes the non-zero scores are bimodal. Where they are not, as on the Os
 ([`benchmarks/ostrowski2024/`](../benchmarks/ostrowski2024/README.md), threshold fixed at 0.28),
 set the threshold explicitly.
 
-**5. Alignment report** ([`SimilarityVisualizer.highlight_similarities()`](../flame.py#L1339),
-[`_render_gap_html()`](../flame.py#L1307), [`classify_gap()`](../flame.py#L1123),
-[`generate_linguistic_summary_tsv()`](../flame.py#L2206)). For every pair above the threshold, the
+**5. Alignment report** ([`SimilarityVisualizer.highlight_similarities()`](../flame.py#L1464),
+[`_render_gap_html()`](../flame.py#L1432), [`classify_gap()`](../flame.py#L1127),
+[`generate_linguistic_summary_tsv()`](../flame.py#L2331)). For every pair above the threshold, the
 shared passages are re-aligned on the **unnormalized** display tokens. The fingerprints are lossy
 and unordered, so they are not used here. The aligner is `difflib.SequenceMatcher`, a
 Ratcliff–Obershelp longest-matching-block alignment (Ratcliff and Metzener 1988), run on a

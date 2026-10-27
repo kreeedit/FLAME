@@ -1,6 +1,7 @@
 import numpy as np
 import glob
 import hashlib
+import json
 import math
 import os
 import pathlib
@@ -427,6 +428,9 @@ DEFAULT_PARAMS = {
     'gen_comparison_html': True,
     'gen_summary_tsv': True,
     'gen_linguistic_tsv': True,
+    # Off by default: a presence switch (-gen_spans_jsonl) turns it on, and an
+    # opt-in output leaves every existing run's files exactly as they were.
+    'gen_spans_jsonl': False,
     'gen_heatmap': True,
     'gen_clusters': True,
 }
@@ -1291,6 +1295,127 @@ def _text_key(text: str) -> str:
     deduplication is switched on.
     """
     return hashlib.sha1(' '.join(text.split()).encode('utf-8')).hexdigest()
+
+
+# --- Character offsets for the spans report -----------------------------------
+# The engine works on the whitespace-collapsed text and the reports on its
+# word_tokenize tokens; neither is what another application holds, which is the
+# file itself. These helpers carry a token range back to the characters of the
+# file, so `open(path, encoding='utf-8', newline='').read()[start:end]` is the
+# span the report names.
+
+_QUOTE_FORMS = {'``': ('"', '``', "''"), "''": ('"', "''", '``')}
+
+
+def _token_char_spans(tokens: List[str], text: str) -> Optional[List[Tuple[int, int]]]:
+    """(start, end) of each word_tokenize token in `text`, or None if one is lost.
+
+    word_tokenize returns its tokens in order and only rewrites double quotes
+    (to `` and ''), so a forward search that also accepts the original quote
+    finds every token. Anything else between two tokens has to be whitespace;
+    if it is not, the tokenizer changed the text in a way this does not know,
+    and None says so instead of an offset that points at the wrong word.
+    """
+    spans, cursor = [], 0
+    for token in tokens:
+        best = None
+        for form in _QUOTE_FORMS.get(token, (token,)):
+            found = text.find(form, cursor)
+            if found >= 0 and (best is None or found < best[0]):
+                best = (found, found + len(form))
+        if best is None or text[cursor:best[0]].strip():
+            return None
+        spans.append(best)
+        cursor = best[1]
+    return spans
+
+
+def _raw_offsets(raw: str, normalized: str) -> Optional[List[int]]:
+    """Maps every character of the loader's text (and its end) to the raw file.
+
+    The loader keeps a file's words and turns each run of whitespace into one
+    space (`_read_text_file`), so a word character maps to itself and a space to
+    the start of the run it replaced. None when the file no longer collapses to
+    the text that was compared -- it changed on disk after loading.
+    """
+    offsets, chars = [], []
+    index, length = 0, len(raw)
+    while index < length and raw[index].isspace():
+        index += 1
+    while index < length:
+        if raw[index].isspace():
+            run_start = index
+            while index < length and raw[index].isspace():
+                index += 1
+            if index < length:
+                offsets.append(run_start)
+                chars.append(' ')
+            continue
+        offsets.append(index)
+        chars.append(raw[index])
+        index += 1
+    if ''.join(chars) != normalized:
+        return None
+    offsets.append(offsets[-1] + 1 if offsets else 0)
+    return offsets
+
+
+def _has_word(token: str) -> bool:
+    return any(char.isalnum() for char in token)
+
+
+def align_pair_segments(tokens1: List[str], tokens2: List[str], max_gap_words: int,
+                        fuzz_threshold: float) -> List[Dict[str, object]]:
+    """The alignment the HTML report draws, as token ranges instead of markup.
+
+    Follows `SimilarityVisualizer.highlight_similarities` step for step -- the
+    same lowercase word sequence, the same SequenceMatcher blocks, the same
+    gap rule (both sides at most max_gap_words, classified by classify_gap), the
+    same tail after the last match -- so a span here is a highlight there. Each
+    entry has 'type' (match / bridge / variant / insertion), the token range on
+    each side ('tokens_1', 'tokens_2', None for a side without words), 'id' for a
+    match (the HTML's data-match-id) and 'fuzz' for a gap. A gap range is trimmed
+    to its words: a comma before a bridge is not part of the bridge.
+    """
+    words1 = [i for i, token in enumerate(tokens1) if token.isalnum()]
+    words2 = [i for i, token in enumerate(tokens2) if token.isalnum()]
+    if not words1 or not words2:
+        return []
+
+    def word_range(tokens: List[str], start: int, end: int) -> Optional[Tuple[int, int]]:
+        inside = [i for i in range(start, end) if _has_word(tokens[i])]
+        return (inside[0], inside[-1] + 1) if inside else None
+
+    def gap(start1: int, end1: int, start2: int, end2: int) -> Optional[Dict[str, object]]:
+        gap1, gap2 = tokens1[start1:end1], tokens2[start2:end2]
+        count1 = sum(token.isalnum() for token in gap1)
+        count2 = sum(token.isalnum() for token in gap2)
+        if not (count1 <= max_gap_words and count2 <= max_gap_words and (count1 or count2)):
+            return None
+        kind, ratio = classify_gap(gap1, gap2, fuzz_threshold)
+        return {"type": kind, "fuzz": round(ratio, 3),
+                "tokens_1": word_range(tokens1, start1, end1),
+                "tokens_2": word_range(tokens2, start2, end2)}
+
+    matcher = SequenceMatcher(None, [tokens1[i].lower() for i in words1],
+                              [tokens2[i].lower() for i in words2], autojunk=False)
+    segments: List[Dict[str, object]] = []
+    pos1, pos2, m_id = 0, 0, 0
+    for a, b, size in matcher.get_matching_blocks():
+        if size == 0: continue
+        a_start, a_end = words1[a], words1[a + size - 1] + 1
+        b_start, b_end = words2[b], words2[b + size - 1] + 1
+        if pos1 < a_start or pos2 < b_start:
+            entry = gap(pos1, a_start, pos2, b_start)
+            if entry: segments.append(entry)
+        segments.append({"type": "match", "id": m_id,
+                         "tokens_1": (a_start, a_end), "tokens_2": (b_start, b_end)})
+        m_id += 1
+        pos1, pos2 = a_end, b_end
+    if m_id > 0 and (pos1 < len(tokens1) or pos2 < len(tokens2)):
+        entry = gap(pos1, len(tokens1), pos2, len(tokens2))
+        if entry: segments.append(entry)
+    return segments
 
 
 class SimilarityVisualizer:
@@ -2281,6 +2406,99 @@ document.addEventListener("DOMContentLoaded", function() {
             f.writelines(rows)
         print("Generated linguistic_variations.tsv")
 
+    @staticmethod
+    def generate_spans_jsonl(analyzer, similarity_threshold: float, clusters: Optional[dict] = None):
+        """Writes similarity_spans.jsonl: one line per pair above the threshold, with
+        the matches and the gaps between them as character offsets into each file.
+
+        `label_1` / `label_2` are [start, end, LABEL] triples (MATCH, BRIDGE,
+        VARIANT, INSERTION) in the form annotation tools such as doccano read;
+        `segments` keeps the pairing -- which span of text 1 aligns with which of
+        text 2 -- and the text each span covers. Offsets count Unicode characters
+        of the file as read with encoding='utf-8', newline=''. A file that no
+        longer matches what was compared falls back to offsets into the loaded,
+        whitespace-collapsed text, and `basis_1` / `basis_2` say which one a line
+        uses.
+        """
+        if analyzer.dist_mat is None or not analyzer.corpus: return
+        print(f"Generating spans JSONL using threshold: {similarity_threshold:.4f}")
+        max_gap = analyzer.args.max_gap_words
+        fuzz_threshold = analyzer.args.fuzz_threshold
+        corpus2 = analyzer.corpus2 if analyzer.is_inter_comparison else analyzer.corpus
+        paths2 = analyzer.file_paths2 if analyzer.is_inter_comparison else analyzer.file_paths
+        root2 = analyzer.corpus_root2 if analyzer.is_inter_comparison else analyzer.corpus_root
+        sides = {1: (analyzer.corpus, analyzer.file_paths), 2: (corpus2, paths2)}
+        documents: Dict[Tuple[int, int], Optional[Dict[str, object]]] = {}
+
+        def document(side: int, index: int) -> Optional[Dict[str, object]]:
+            # Tokenized, located and read once per document, however many pairs it is in.
+            key = (side, index)
+            if key not in documents:
+                texts, paths = sides[side]
+                text = texts[index]
+                tokens = word_tokenize(text)
+                spans = _token_char_spans(tokens, text)
+                offsets = None
+                try:
+                    with open(paths[index], 'r', encoding='utf-8', newline='') as f:
+                        raw = f.read()
+                    offsets = _raw_offsets(raw, text)
+                except OSError:
+                    pass
+                if offsets is None:
+                    raw, offsets = text, list(range(len(text) + 1))
+                documents[key] = None if spans is None else {
+                    "tokens": tokens, "spans": spans, "raw": raw, "offsets": offsets,
+                    "basis": "file" if raw is not text else "loaded_text"}
+            return documents[key]
+
+        def char_span(doc: Dict[str, object], token_range) -> Optional[List[int]]:
+            if token_range is None: return None
+            start = doc["offsets"][doc["spans"][token_range[0]][0]]
+            end = doc["offsets"][doc["spans"][token_range[1] - 1][1] - 1] + 1
+            return [start, end]
+
+        lines, unlocated = [], 0
+        dist_mat_coo = analyzer.dist_mat.tocoo()
+        for i, j, score in tqdm.tqdm(zip(dist_mat_coo.row, dist_mat_coo.col, dist_mat_coo.data), desc="Locating spans", total=dist_mat_coo.nnz):
+            if score < similarity_threshold: continue
+            if not analyzer.is_inter_comparison and i >= j: continue
+            doc1, doc2 = document(1, int(i)), document(2, int(j))
+            if doc1 is None or doc2 is None:
+                unlocated += 1
+                continue
+            record = {
+                "pair_id": f"{int(i)}-{int(j)}",
+                "file_1": display_path(analyzer.file_paths[i], analyzer.corpus_root),
+                "file_2": display_path(paths2[j], root2),
+                "score": round(float(score), 4),
+            }
+            if clusters:
+                cid = clusters["pair_cluster_of"].get((int(i), int(j)), -1)
+                record["cluster_id"] = cid if cid >= 0 else None
+            record.update({"basis_1": doc1["basis"], "basis_2": doc2["basis"],
+                           "label_1": [], "label_2": [], "segments": []})
+            for segment in align_pair_segments(doc1["tokens"], doc2["tokens"], max_gap, fuzz_threshold):
+                span1 = char_span(doc1, segment["tokens_1"])
+                span2 = char_span(doc2, segment["tokens_2"])
+                entry = {"type": segment["type"]}
+                if "id" in segment: entry["id"] = segment["id"]
+                if "fuzz" in segment: entry["fuzz"] = segment["fuzz"]
+                entry.update({"span_1": span1, "span_2": span2,
+                              "text_1": doc1["raw"][span1[0]:span1[1]] if span1 else None,
+                              "text_2": doc2["raw"][span2[0]:span2[1]] if span2 else None})
+                record["segments"].append(entry)
+                label = segment["type"].upper()
+                if span1: record["label_1"].append([span1[0], span1[1], label])
+                if span2: record["label_2"].append([span2[0], span2[1], label])
+            lines.append(json.dumps(record, ensure_ascii=False) + "\n")
+        with open("similarity_spans.jsonl", "w", encoding='utf-8') as f:
+            f.writelines(lines)
+        if unlocated:
+            print(f"Warning: {unlocated} pair(s) left out of similarity_spans.jsonl: "
+                  "a text's tokens could not be located in it.")
+        print("Generated similarity_spans.jsonl")
+
 def main():
     print("--- Formulaic Language Analysis in Medieval Expressions ---")
     print("For command-line options, run with the -h flag.")
@@ -2360,6 +2578,9 @@ def main():
                     SimilarityVisualizer.generate_linguistic_summary_tsv(analyzer, similarity_threshold=final_threshold, clusters=clusters)
                 else:
                     print("Skipping linguistic TSV generation as per configuration.")
+
+                if analyzer.args.gen_spans_jsonl:
+                    SimilarityVisualizer.generate_spans_jsonl(analyzer, similarity_threshold=final_threshold, clusters=clusters)
 
                 if analyzer.args.gen_clusters:
                     SimilarityVisualizer.generate_cluster_report(analyzer, clusters)

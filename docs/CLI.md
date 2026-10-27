@@ -48,6 +48,7 @@ the defaults, which live in `DEFAULT_PARAMS` in `flame.py`.
 | `gen_comparison_html` | `True` | Generate interactive side-by-side HTML comparison reports. |
 | `gen_summary_tsv` | `True` | Generate a TSV summary of related documents and matching segments. |
 | `gen_linguistic_tsv` | `True` | Generate a granular TSV of linguistic variations (alternative spellings, substitutions). |
+| `gen_spans_jsonl` | `False` | Generate `similarity_spans.jsonl`: per pair, the matches, bridges, variants, and insertions as character offsets into each file. Off by default; `-gen_spans_jsonl` turns it on. See [Outputs](../README.md#outputs). |
 | `gen_heatmap` | `True` | Generate an interactive Plotly similarity heatmap HTML file. Skipped, with a printed note, when the similarity matrix reaches 2000 documents in either dimension — a corpus that large is read better from the cluster and pair reports. |
 | `gen_clusters` | `True` | Generate the clustering (recurring legal formulas) report. **Also adds a `ClusterID` column to `similarity_summary.tsv` and `linguistic_variations.tsv`** — see the note under [Outputs](../README.md#outputs). |
 
