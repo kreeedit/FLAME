@@ -135,6 +135,23 @@ Two thresholds work together. `similarity_threshold` decides which pairs are com
 
 Anchoring the core on performative verbs (`core_anchors`) ships **off**, because the anchor set could not be derived from the corpus and has to be supplied per corpus. The measurements behind each default, the specificity score, and the anchoring experiments are in [docs/CLUSTERING.md](docs/CLUSTERING.md).
 
+### KWIC export
+
+`-gen_kwic` reads the same clusters occurrence by occurrence instead of formula by formula and writes `kwic.tsv`: one row per charter that carries a formula, with `kwic_context` words (default 5) on each side, the file, the year in its filename, and the keyword's character offsets into that file, so `open(file, newline='').read()[CharStart:CharEnd]` is the keyword. `-kwic_query="…"` restricts the table to one formula and narrows the keyword to the queried phrase; the query is matched on the clusters' spelling-folded cores, so the variants and the filled slots are accounted for where they already were, and a query that matches nothing prints the corpus's closest formulas instead. `-kwic_tei` writes the same spans as a TEI `<standOff>` annotation with RFC 5147 character ranges. The export is built from the clustering and needs `gen_clusters` (on by default).
+
+```bash
+python flame.py -input_path ./corpus -gen_kwic -kwic_query="damus et concedimus ac presentibus confirmamus"
+```
+
+```
+ClusterID  File                Year  Left                                      Keyword                                                Right                                …
+0          1345-sulzbach.txt   1345  ac nobilium virorum curie nostre          damus et concedimus ac presentibus confirmamus         pro remedio anime nostre ecclesie    …
+0,1        1352-altendorf.txt  1352  nostrorum ac fidelium nostrorum consilio  damus et concedimus ac presentibus confirmamus         pro remedio anime nostre monasterio  …
+0,1        1371-rorbach.txt    1371  nos unanimi consensu fratrum nostrorum    damus et concedimus necnon ac presentibus confirmamus  pro remedio anime nostre capelle     …
+```
+
+The last charter writes the formula with a word inserted into it (`necnon`) and the keyword covers it, because the clustering found the occurrence, not a string search. `ClusterID` lists every cluster that names an occurrence, and the remaining columns (`…`) carry the token range, the character offsets, the cluster's headline formula and its size.
+
 ## Recipes
 
 One-line starting points; the full parameter sets are in [docs/RECIPES.md](docs/RECIPES.md).

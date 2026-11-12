@@ -235,9 +235,51 @@ class FlameGUI(tk.Tk):
                                       "  union = transitive (KONI's original).",
                   font=("TkDefaultFont", 9, "italic")).grid(row=5, column=0, columnspan=2, sticky=tk.W, padx=20, pady=2)
 
+        # The KWIC export has its own frame rather than a checkbox in the block
+        # above, because it is the only output with parameters of its own: which
+        # formula to look for, and how much of its surroundings to carry.
+        kwic_frame = ttk.LabelFrame(tab_reports, text="KWIC Export (Formula Concordance)", padding="10")
+        kwic_frame.pack(fill=tk.X, pady=5)
+        kwic_frame.columnconfigure(1, weight=1)
+
+        self.chk_kwic = ttk.Checkbutton(
+            kwic_frame, text="Generate KWIC Table (kwic.tsv)",
+            variable=self.params['gen_kwic'], command=self.toggle_kwic_entries)
+        self.chk_kwic.grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+
+        self.chk_kwic_tei = ttk.Checkbutton(
+            kwic_frame, text="Also as TEI Standoff XML (kwic_tei.xml)",
+            variable=self.params['kwic_tei'])
+        self.chk_kwic_tei.grid(row=0, column=1, columnspan=2, sticky=tk.W, padx=5, pady=2)
+
+        ttk.Label(kwic_frame, text="Formula / phrase:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=4)
+        self.kwic_query_entry = ttk.Entry(kwic_frame, textvariable=self.params['kwic_query'], width=55)
+        self.kwic_query_entry.grid(row=1, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=4)
+
+        ttk.Label(kwic_frame, text="Context (words each side):").grid(row=2, column=0, sticky=tk.W, padx=5, pady=4)
+        self.kwic_context_entry = ttk.Entry(kwic_frame, textvariable=self.params['kwic_context'], width=8)
+        self.kwic_context_entry.grid(row=2, column=1, sticky=tk.W, padx=5, pady=4)
+
+        ttk.Label(kwic_frame, text="Keyword scope:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=4)
+        self.kwic_scope_dropdown = ttk.Combobox(
+            kwic_frame, textvariable=self.params['kwic_scope'],
+            values=['auto', 'phrase', 'cluster'], state='readonly', width=10)
+        self.kwic_scope_dropdown.grid(row=3, column=1, sticky=tk.W, padx=5, pady=4)
+
+        ttk.Label(kwic_frame, text="Query match floor (0-1):").grid(row=4, column=0, sticky=tk.W, padx=5, pady=4)
+        self.kwic_fuzz_entry = ttk.Entry(kwic_frame, textvariable=self.params['kwic_query_fuzz'], width=8)
+        self.kwic_fuzz_entry.grid(row=4, column=1, sticky=tk.W, padx=5, pady=4)
+
+        ttk.Label(kwic_frame, text="One row per occurrence of a formula: the words around it, the file and the characters it covers."
+                                  "  An empty phrase exports every cluster (the corpus's formula inventory)."
+                                  "  Needs the clustering report, and matches the phrase in folded spelling (vnd = und).",
+                  font=("TkDefaultFont", 9, "italic"), wraplength=820, justify=tk.LEFT
+                  ).grid(row=5, column=0, columnspan=3, sticky=tk.W, padx=5, pady=2)
+
         self.toggle_report_checkboxes()
         self.toggle_phonetic_entries()
         self.toggle_bigram_entries()
+        self.toggle_kwic_entries()
 
         # ==================== RUN & LOG ENGINE (BOTTOM) ====================
         self.run_button = ttk.Button(main_frame, text="Run FLAME Pipeline", command=self.start_analysis_thread)
@@ -245,7 +287,7 @@ class FlameGUI(tk.Tk):
 
         results_frame = ttk.LabelFrame(main_frame, text="Direct Action: Open Analysis Results", padding="10")
         results_frame.pack(fill=tk.X, pady=5)
-        for i in range(5): results_frame.columnconfigure(i, weight=1)
+        for i in range(6): results_frame.columnconfigure(i, weight=1)
 
         self.html_button = ttk.Button(results_frame, text="Open Aligned HTML", state=tk.DISABLED, command=lambda: self.open_result_file('text_comparisons_01.html'))
         self.html_button.grid(row=0, column=0, padx=5, pady=5, sticky=tk.EW)
@@ -261,6 +303,9 @@ class FlameGUI(tk.Tk):
 
         self.clusters_button = ttk.Button(results_frame, text="Open Clusters Report", state=tk.DISABLED, command=lambda: self.open_result_file('clusters.html'))
         self.clusters_button.grid(row=0, column=4, padx=5, pady=5, sticky=tk.EW)
+
+        self.kwic_button = ttk.Button(results_frame, text="Open KWIC TSV", state=tk.DISABLED, command=lambda: self.open_result_file('kwic.tsv'))
+        self.kwic_button.grid(row=0, column=5, padx=5, pady=5, sticky=tk.EW)
 
         log_frame = ttk.LabelFrame(main_frame, text="Pipeline Execution Standard Output Log", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, side=tk.BOTTOM)
@@ -279,6 +324,18 @@ class FlameGUI(tk.Tk):
         self.chk_heatmap.config(state=new_state)
         self.chk_clusters.config(state=new_state)
         self.chk_spans.config(state=new_state)
+        self.chk_kwic.config(state=new_state)
+        self.toggle_kwic_entries()
+
+    def toggle_kwic_entries(self):
+        """Enables the KWIC settings only while the export itself is on."""
+        enabled = self.params['gen_kwic'].get() and not self.params['no_reports'].get()
+        state = tk.NORMAL if enabled else tk.DISABLED
+        self.chk_kwic_tei.config(state=state)
+        self.kwic_query_entry.config(state=state)
+        self.kwic_context_entry.config(state=state)
+        self.kwic_fuzz_entry.config(state=state)
+        self.kwic_scope_dropdown.config(state='readonly' if enabled else tk.DISABLED)
 
     def toggle_phonetic_entries(self):
         """Enables/disables phonetic reduction entries based on checkbox state."""
@@ -347,10 +404,11 @@ class FlameGUI(tk.Tk):
                              'max_gap_words', 'auto_tune_sample_size',
                              'cluster_min', 'core_gap_tolerance', 'core_min_tokens',
                              'core_anchor_window', 'core_max_tokens',
-                             'min_duplicate_tokens']:
+                             'min_duplicate_tokens', 'kwic_context']:
                     args_for_flame[key] = int(val)
                 elif key in ['vocab_coverage', 'fuzz_threshold', 'cluster_threshold',
-                             'min_core_specificity', 'core_identity_threshold']:
+                             'min_core_specificity', 'core_identity_threshold',
+                             'kwic_query_fuzz']:
                     args_for_flame[key] = float(val)
                 elif key == 'similarity_threshold' and str(val).lower() != 'auto':
                     args_for_flame[key] = float(val)
@@ -425,6 +483,13 @@ class FlameGUI(tk.Tk):
                 if analyzer.args.gen_spans_jsonl:
                     SimilarityVisualizer.generate_spans_jsonl(analyzer, similarity_threshold=final_threshold, clusters=clusters)
 
+                if analyzer.args.gen_kwic:
+                    if clusters is None:
+                        print("Skipping the KWIC table: it is built from the clusters, "
+                              "and the clustering report is switched off.")
+                    else:
+                        SimilarityVisualizer.generate_kwic(analyzer, clusters)
+
                 if analyzer.args.gen_clusters:
                     SimilarityVisualizer.generate_cluster_report(analyzer, clusters)
 
@@ -457,6 +522,8 @@ class FlameGUI(tk.Tk):
             self.linguistic_button.config(state=tk.NORMAL)
         if self.params['gen_clusters'].get() and os.path.exists('clusters.html'):
             self.clusters_button.config(state=tk.NORMAL)
+        if self.params['gen_kwic'].get() and os.path.exists('kwic.tsv'):
+            self.kwic_button.config(state=tk.NORMAL)
 
     def write(self, text):
         self.log_queue.put(text)

@@ -1217,7 +1217,8 @@ def generate_cluster_report(records: Sequence[Dict], stats: Dict,
          "members": [(name1, name2, cosine), ...],
          "core_ratio": [float, ...], "cohesion": float,
          "core_tokens": int, "mean_idf": float, "specificity": float,
-         "doc_texts": {name: {"tokens": [...], "spans": [(start, end), ...]}}}
+         "doc_texts": {name: {"tokens": [...], "spans": [(start, end), ...],
+                              "key": (side, index) or None}}}
 
     A record carries both spellings of the core on purpose. `core_display` is the
     formula as the charters write it, and `core_folded` is what the clustering
@@ -1233,7 +1234,8 @@ def generate_cluster_report(records: Sequence[Dict], stats: Dict,
 
     `doc_texts` is optional and only supplies the embedded reading view; a record
     without it still produces a complete report, with the document names as plain
-    text instead of links.
+    text instead of links. Its `key` is not read here -- it is how FLAME's KWIC
+    export gets from a marked span back to the file the text was loaded from.
     """
     # The per-pair cosine is the TF-IDF similarity that let the pair into the
     # comparison at all. It is NOT the number that formed the cluster: that one is
