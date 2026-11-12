@@ -17,6 +17,7 @@ from difflib import SequenceMatcher
 from collections import defaultdict, Counter
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Union, Optional
+from xml.sax.saxutils import escape, quoteattr
 import tempfile
 from scipy.sparse import coo_matrix, save_npz, vstack
 from sklearn.metrics.pairwise import cosine_similarity
@@ -433,6 +434,35 @@ DEFAULT_PARAMS = {
     'gen_spans_jsonl': False,
     'gen_heatmap': True,
     'gen_clusters': True,
+    # KWIC export (kwic.tsv): the clusters read occurrence by occurrence instead
+    # of formula by formula -- one row per charter that carries a formula, with
+    # the words around it, the file it is in and the characters it occupies.
+    # Off by default and dependent on the clustering: it reshapes what
+    # `compute_clusters` found and computes no similarity of its own, so a run
+    # with -gen_clusters off has nothing to export.
+    'gen_kwic': False,
+    # Words of context on each side of the keyword. Words, not tokens: the
+    # punctuation between them is carried along but does not use up the count.
+    'kwic_context': 5,
+    # The formula to look for, as a phrase ('scripti patrocinio communimus').
+    # Empty exports every cluster, which is the corpus's formula inventory in
+    # KWIC form. The phrase is matched in the *folded* space (vnd = und), so it
+    # may be typed in any one of the spellings the corpus uses.
+    'kwic_query': '',
+    # How close a cluster's core must be to the query when it does not contain it
+    # verbatim, on the 0-1 scale of `fuzz_threshold` (rapidfuzz partial_ratio over
+    # 100). The default admits a formula whose variable slot is filled with
+    # another word while rejecting a formula that merely shares a phrase with the
+    # query; 1.0 demands verbatim containment.
+    'kwic_query_fuzz': 0.85,
+    # What the Keyword column holds: 'phrase' narrows it to the queried phrase
+    # inside the cluster's window, 'cluster' keeps the whole window (a formula
+    # can run to a hundred words), and 'auto' -- the default -- narrows when
+    # there is a query and keeps the window when there is not.
+    'kwic_scope': 'auto',
+    # Also write kwic_tei.xml: the same occurrences as a TEI standoff annotation,
+    # each span an RFC 5147 character range into the file it points at.
+    'kwic_tei': False,
 }
 
 def parse_phonetic_rules(rules_str: str) -> Dict[str, str]:
@@ -1274,14 +1304,21 @@ def _fold_documents(display_token_corpus: List[List[str]]
 
 
 def _add_span(doc_texts: Dict[str, Dict[str, object]], name: str, tokens: List[str],
-              positions: List[int], span: Tuple[int, int]) -> None:
+              positions: List[int], span: Tuple[int, int],
+              key: Optional[Tuple[int, int]] = None) -> None:
     """Records that `name` carries the core at `span`, for the report's read view.
 
     Tokens are kept only for the documents that a cluster actually names, and only
     once per document: the same charter can appear in several clusters, but within
     one cluster its text is one string with perhaps several marked runs.
+
+    `key` is the document's (side, index) in the corpus, which the read view does
+    not need -- it renders the tokens it was handed -- but the KWIC export does:
+    a span becomes a character offset only by going back to the file the text was
+    loaded from, and a name cannot be resolved to one. Stored once, with the
+    tokens, since both describe the same document.
     """
-    entry = doc_texts.setdefault(name, {"tokens": tokens, "spans": []})
+    entry = doc_texts.setdefault(name, {"tokens": tokens, "spans": [], "key": key})
     entry["spans"].append(_token_span(positions, span[0], span[1]))
 
 
@@ -1360,6 +1397,49 @@ def _raw_offsets(raw: str, normalized: str) -> Optional[List[int]]:
     return offsets
 
 
+def locate_document(text: str, path) -> Optional[Dict[str, object]]:
+    """Ties a loaded text to the characters of the file it came from.
+
+    Returns the tokenizer's tokens, each token's span in `text`, the raw file and
+    the map from `text`'s characters to the file's, or None when the tokens cannot
+    be located in the text at all (`_token_char_spans`). A file that no longer
+    collapses to what was compared -- or cannot be read -- falls back to offsets
+    into the loaded text, and `basis` says which of the two a caller is holding.
+
+    Shared by every report that names a span in characters rather than in tokens
+    (the spans JSONL and the KWIC export), because a second implementation of the
+    same two-step mapping is a second place for an off-by-one to live.
+    """
+    tokens = word_tokenize(text)
+    spans = _token_char_spans(tokens, text)
+    offsets = None
+    try:
+        with open(path, 'r', encoding='utf-8', newline='') as f:
+            raw = f.read()
+        offsets = _raw_offsets(raw, text)
+    except OSError:
+        pass
+    if offsets is None:
+        raw, offsets = text, list(range(len(text) + 1))
+    return None if spans is None else {
+        "tokens": tokens, "spans": spans, "raw": raw, "offsets": offsets,
+        "basis": "file" if raw is not text else "loaded_text"}
+
+
+def token_char_span(doc: Dict[str, object], token_range) -> Optional[List[int]]:
+    """A half-open token range as character offsets into `doc`'s basis.
+
+    None for a missing range and for an *empty* one: a core that was not found in
+    a document maps to the empty range (`_token_span`), and reading the last
+    token's offsets for it would point the span at the end of the charter.
+    """
+    if token_range is None or token_range[1] <= token_range[0]:
+        return None
+    start = doc["offsets"][doc["spans"][token_range[0]][0]]
+    end = doc["offsets"][doc["spans"][token_range[1] - 1][1] - 1] + 1
+    return [start, end]
+
+
 def _has_word(token: str) -> bool:
     return any(char.isalnum() for char in token)
 
@@ -1416,6 +1496,253 @@ def align_pair_segments(tokens1: List[str], tokens2: List[str], max_gap_words: i
         entry = gap(pos1, len(tokens1), pos2, len(tokens2))
         if entry: segments.append(entry)
     return segments
+
+
+# --- KWIC export --------------------------------------------------------------
+# The clustering answers "which formulas does this corpus carry, and which
+# charters share each one". A KWIC table answers the question a philologist asks
+# of one formula: show me every occurrence, in context, one row per charter, with
+# enough of the file named to go back to it. Both readings come from the same
+# computation -- `compute_clusters` already records a cluster's window in every
+# document that carries it (`doc_texts`), and `locate_document` carries a token
+# range back to the characters of the file -- so this stage locates nothing and
+# compares nothing: it reshapes what the clustering found into rows.
+#
+# The variation is handled where it belongs: a formula's spelling variants and
+# filled slots are what put two charters in one cluster in the first place, so
+# "all occurrences, accepting variety" is the cluster's membership, not a second
+# fuzzy search over the corpus.
+
+
+def _context_bounds(tokens: List[str], start: int, end: int, width: int) -> Tuple[int, int]:
+    """Token indices `width` *words* to the left of `start` and right of `end`.
+
+    Counted in words, not tokens: a KWIC's "five words left" must not be spent on
+    the commas the tokenizer split off. The punctuation between those words is
+    kept, so the context detokenizes back into readable text.
+    """
+    left, words = start, 0
+    while left > 0 and words < width:
+        left -= 1
+        if _has_word(tokens[left]):
+            words += 1
+    right, words = end, 0
+    while right < len(tokens) and words < width:
+        if _has_word(tokens[right]):
+            words += 1
+        right += 1
+    return left, right
+
+
+def _merge_spans(spans: List[Tuple[int, int]]) -> List[Tuple[Tuple[int, int], int]]:
+    """A document's core windows collapsed into its occurrences of the formula.
+
+    Every pair a document is in contributes its own window, so a charter in a
+    75-member cluster carries the same formula up to 74 times over, each window a
+    word or two wider than the next. Overlapping windows are therefore one
+    occurrence -- their union -- and two disjoint windows are two, which is a
+    charter that writes the formula twice. The number of windows behind each
+    occurrence travels with it: a span agreed on by forty pairs and a span seen
+    by one are not equally well attested.
+
+    Empty windows are dropped: a core the alignment could not place in a document
+    maps to the empty range (`_token_span`), and an occurrence covering no words
+    is not an occurrence.
+    """
+    merged: List[List[int]] = []
+    for start, end in sorted(span for span in spans if span[1] > span[0]):
+        if merged and start < merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+            merged[-1][2] += 1
+        else:
+            merged.append([start, end, 1])
+    return [((start, end), count) for start, end, count in merged]
+
+
+def _folded_phrase(text: str) -> str:
+    """A query phrase in the space the clustering compared: folded, space-joined.
+
+    Tokenized and filtered exactly as `flame_clustering.iter_token_pairs` filters
+    a document, so a phrase typed with punctuation or a stray digit reduces to
+    the same words a core is made of -- otherwise a query could never match.
+    """
+    tokens = [folded for _index, _display, folded
+              in flame_clustering.iter_token_pairs(word_tokenize(text), fold_for_compare)]
+    return ' '.join(tokens)
+
+
+def _query_score(core_folded: str, query: str) -> float:
+    """How well a cluster's headline core carries the queried phrase, 0-1.
+
+    Exact containment on word boundaries scores 1.0, and it is checked in the
+    *folded* space, where spelling is already normalized: `vnd` and `und` are one
+    query, as they are one formula. A core that does not contain the phrase
+    verbatim can still be the formula asked for -- a variable slot filled
+    differently, an ending folding does not remove -- so the fallback is
+    rapidfuzz's `partial_ratio`, which scores the phrase against its best
+    matching window of the core instead of against the whole of it. Scored
+    against the core rather than against each charter because the core is what
+    the cluster is: membership already accounts for the variants.
+    """
+    if not query:
+        return 1.0
+    if f" {query} " in f" {core_folded} ":
+        return 1.0
+    return fuzz.partial_ratio(query, core_folded) / 100.0
+
+
+# Of a query's words, how many must be matched inside a document's window before
+# the window is narrowed to them. Half, because the whole point of narrowing is
+# the charter that writes the formula with a word substituted or dropped; below
+# half, what was found is no longer the phrase that was asked for and the full
+# core window is the more honest answer.
+_PHRASE_COVERAGE = 0.5
+
+
+def _phrase_window(tokens: List[str], span: Tuple[int, int],
+                   query_tokens: List[str]) -> Optional[Tuple[int, int]]:
+    """The part of `span` that carries the queried phrase, or None.
+
+    A cluster's window is the formula as the *alignment* found it, which can run
+    to a hundred words; a KWIC of "the core phrase plus five words" needs the
+    phrase itself. The phrase is located by the same SequenceMatcher the rest of
+    the pipeline aligns with, on folded tokens, so a slot filled with another
+    name still matches around it. Returns the outer bounds of the matching words
+    -- a filled slot in the middle belongs to the phrase as this charter writes
+    it.
+    """
+    kept = [(index, folded) for index, _display, folded
+            in flame_clustering.iter_token_pairs(tokens[span[0]:span[1]], fold_for_compare)]
+    if not kept or not query_tokens:
+        return None
+    matcher = SequenceMatcher(None, query_tokens, [folded for _index, folded in kept],
+                              autojunk=False)
+    blocks = [block for block in matcher.get_matching_blocks() if block.size]
+    if not blocks or sum(block.size for block in blocks) < _PHRASE_COVERAGE * len(query_tokens):
+        return None
+    first = kept[blocks[0].b][0]
+    last = kept[blocks[-1].b + blocks[-1].size - 1][0]
+    return (span[0] + first, span[0] + last + 1)
+
+
+# The KWIC table's columns, as (header, row key). The reading columns come first
+# -- a KWIC is read left-keyword-right -- and the machinery (offsets, counts,
+# cluster metrics) after them, so the table is usable in a spreadsheet without
+# hiding half of it. `clusters.tsv` keeps the cluster-level view; the figures
+# repeated here are the ones a row cannot be judged without.
+_KWIC_COLUMNS = (
+    ("ClusterID", "cluster_id"), ("Kind", "kind"), ("Anchor", "anchor"),
+    ("File", "file"), ("Side", "side"), ("Year", "year"),
+    ("Occurrence", "occurrence"),
+    ("Left", "left"), ("Keyword", "keyword"), ("Right", "right"),
+    ("KeywordScope", "keyword_scope"),
+    ("TokenStart", "token_start"), ("TokenEnd", "token_end"),
+    ("CharStart", "char_start"), ("CharEnd", "char_end"), ("Basis", "basis"),
+    ("PairWindows", "pair_windows"), ("CoreFormula", "core_formula"),
+    ("ClusterSize", "cluster_size"), ("CoreTokens", "core_tokens"),
+    ("Specificity", "specificity"), ("QueryScore", "query_score"),
+)
+
+
+def _tsv_cell(value) -> str:
+    """A value as one TSV cell: no tab, no line break, no empty-looking None."""
+    if value is None:
+        return ''
+    return str(value).replace('\t', ' ').replace('\r', ' ').replace('\n', ' ')
+
+
+def _merge_kwic_rows(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """One occurrence, one row, however many clusters name it.
+
+    A charter can sit in two clusters whose cores cover the same words of it --
+    the same passage reached through different pairs, which is what happens when
+    a formula's neighbourhood is itself formulaic -- and a KWIC listing it twice
+    reads as two occurrences of the formula. The clusters are kept rather than
+    hidden: `ClusterID` becomes a comma-separated list, the way the summary TSVs
+    already carry overlapping clique ids, and the cluster-level columns are taken
+    from whichever of them matches the query best (ties to the lower id, so the
+    table is reproducible). `PairWindows` adds up, since each cluster is counting
+    its own pairs.
+
+    `Occurrence` is renumbered afterwards, per file and in reading order: before
+    the merge it counts within one cluster, and two clusters' occurrences of one
+    charter would both start at 1.
+    """
+    groups: Dict[Tuple[object, object, object], List[Dict[str, object]]] = {}
+    for row in rows:
+        groups.setdefault((row["file"], row["token_start"], row["token_end"]), []).append(row)
+    merged: List[Dict[str, object]] = []
+    for group in groups.values():
+        best = min(group, key=lambda row: (-float(row["query_score"]), row["cluster_id"]))
+        row = dict(best)
+        row["cluster_id"] = ','.join(str(member["cluster_id"]) for member
+                                     in sorted(group, key=lambda member: member["cluster_id"]))
+        row["pair_windows"] = sum(int(member["pair_windows"]) for member in group)
+        merged.append(row)
+    seen: Counter = Counter()
+    for row in sorted(merged, key=lambda row: (str(row["file"]), row["token_start"])):
+        seen[row["file"]] += 1
+        row["occurrence"] = seen[row["file"]]
+    return merged
+
+
+def _kwic_tei(rows: List[Dict[str, object]], context: int, query: str,
+              command: str, generated: str) -> str:
+    """The KWIC rows as a TEI standoff annotation.
+
+    Standoff rather than inline: FLAME is handed plain text files and has no
+    business rewriting them, and a charter that is already TEI elsewhere must not
+    be given a second, conflicting body. Each occurrence is a `<span>` pointing
+    into its file with an RFC 5147 character range (`#char=start,end`), grouped
+    by the cluster whose formula it is, so an annotation tool can resolve every
+    span without FLAME's reports.
+
+    Only occurrences whose offsets are offsets *into the file* are written: a
+    span measured on the loaded text would point at the wrong characters of the
+    file it names, which is worse than a missing annotation. The caller reports
+    how many were left out.
+    """
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<TEI xmlns="http://www.tei-c.org/ns/1.0">',
+           '  <teiHeader>', '    <fileDesc>', '      <titleStmt>',
+           '        <title>FLAME KWIC: formula occurrences as standoff annotation</title>',
+           '      </titleStmt>', '      <publicationStmt>',
+           f'        <p>Generated by FLAME on {escape(generated)}.</p>',
+           '      </publicationStmt>', '      <sourceDesc>',
+           f'        <p>Command: {escape(command)}</p>',
+           f'        <p>Queried phrase: {escape(query) if query else "none (every cluster)"}; '
+           f'context: {context} word(s) on each side. Span targets are character ranges '
+           f'(RFC 5147) into the files named, read as UTF-8.</p>',
+           '      </sourceDesc>', '    </fileDesc>', '  </teiHeader>', '  <standOff>']
+    by_cluster: Dict[object, List[Dict[str, object]]] = defaultdict(list)
+    for row in rows:
+        if row["basis"] == "file" and row["char_start"] is not None:
+            by_cluster[row["cluster_id"]].append(row)
+    # Numbered rather than named after the cluster: `ClusterID` is a list once an
+    # occurrence belongs to more than one cluster (see _merge_kwic_rows), and a
+    # comma is not a legal xml:id -- nor would "formula-0-1" stay distinct from
+    # the first span of cluster 0. The ids the clusters are known by travel in an
+    # attribute instead.
+    for number, (cluster_id, cluster_rows) in enumerate(by_cluster.items(), start=1):
+        first = cluster_rows[0]
+        out.append(f'    <spanGrp type={quoteattr(str(first["kind"]))} '
+                   f'xml:id="formula-{number}" n={quoteattr(str(len(cluster_rows)))}>')
+        out.append(f'      <note type="cluster">{escape(str(cluster_id))}</note>')
+        out.append(f'      <note type="core">{escape(str(first["core_formula"]))}</note>')
+        if first["anchor"]:
+            out.append(f'      <note type="anchor">{escape(str(first["anchor"]))}</note>')
+        for index, row in enumerate(cluster_rows, start=1):
+            target = f'{row["file"]}#char={row["char_start"]},{row["char_end"]}'
+            out.append(f'      <span xml:id="formula-{number}-{index}" '
+                       f'target={quoteattr(target)}>')
+            out.append(f'        <term>{escape(str(row["keyword"]))}</term>')
+            out.append(f'        <note type="context">{escape(str(row["left"]))} '
+                       f'<hi rend="bold">{escape(str(row["keyword"]))}</hi> '
+                       f'{escape(str(row["right"]))}</note>')
+            out.append('      </span>')
+        out.append('    </spanGrp>')
+    out += ['  </standOff>', '</TEI>', '']
+    return '\n'.join(out)
 
 
 class SimilarityVisualizer:
@@ -2097,9 +2424,15 @@ document.addEventListener("DOMContentLoaded", function() {
                 # documents, so each charter is marked where it writes the
                 # formula itself.
                 span1, span2 = core_spans[pair_index]
-                _add_span(doc_texts, name1, display_token_corpus1[i], positions1[i], span1)
+                _add_span(doc_texts, name1, display_token_corpus1[i], positions1[i], span1,
+                          (1, i))
                 if span2[1]:
-                    _add_span(doc_texts, name2, display_token_corpus2[j], positions2[j], span2)
+                    # Side 2 only when there is a second corpus: in a
+                    # self-comparison both ends index corpus 1, and calling the
+                    # second end "side 2" would send the KWIC export to the
+                    # reference corpus's file list, which is corpus 1's again.
+                    _add_span(doc_texts, name2, display_token_corpus2[j], positions2[j], span2,
+                              (2, j) if analyzer.is_inter_comparison else (1, j))
             reference = cores[cluster["members"][0]]
             # How much of the shorter charter the core's window covers. A formula
             # is a *part* of a charter; when the window swallows most of one, the
@@ -2435,28 +2768,8 @@ document.addEventListener("DOMContentLoaded", function() {
             key = (side, index)
             if key not in documents:
                 texts, paths = sides[side]
-                text = texts[index]
-                tokens = word_tokenize(text)
-                spans = _token_char_spans(tokens, text)
-                offsets = None
-                try:
-                    with open(paths[index], 'r', encoding='utf-8', newline='') as f:
-                        raw = f.read()
-                    offsets = _raw_offsets(raw, text)
-                except OSError:
-                    pass
-                if offsets is None:
-                    raw, offsets = text, list(range(len(text) + 1))
-                documents[key] = None if spans is None else {
-                    "tokens": tokens, "spans": spans, "raw": raw, "offsets": offsets,
-                    "basis": "file" if raw is not text else "loaded_text"}
+                documents[key] = locate_document(texts[index], paths[index])
             return documents[key]
-
-        def char_span(doc: Dict[str, object], token_range) -> Optional[List[int]]:
-            if token_range is None: return None
-            start = doc["offsets"][doc["spans"][token_range[0]][0]]
-            end = doc["offsets"][doc["spans"][token_range[1] - 1][1] - 1] + 1
-            return [start, end]
 
         lines, unlocated = [], 0
         dist_mat_coo = analyzer.dist_mat.tocoo()
@@ -2479,8 +2792,8 @@ document.addEventListener("DOMContentLoaded", function() {
             record.update({"basis_1": doc1["basis"], "basis_2": doc2["basis"],
                            "label_1": [], "label_2": [], "segments": []})
             for segment in align_pair_segments(doc1["tokens"], doc2["tokens"], max_gap, fuzz_threshold):
-                span1 = char_span(doc1, segment["tokens_1"])
-                span2 = char_span(doc2, segment["tokens_2"])
+                span1 = token_char_span(doc1, segment["tokens_1"])
+                span2 = token_char_span(doc2, segment["tokens_2"])
                 entry = {"type": segment["type"]}
                 if "id" in segment: entry["id"] = segment["id"]
                 if "fuzz" in segment: entry["fuzz"] = segment["fuzz"]
@@ -2498,6 +2811,165 @@ document.addEventListener("DOMContentLoaded", function() {
             print(f"Warning: {unlocated} pair(s) left out of similarity_spans.jsonl: "
                   "a text's tokens could not be located in it.")
         print("Generated similarity_spans.jsonl")
+
+    @staticmethod
+    def generate_kwic(analyzer, clusters: Optional[dict]) -> None:
+        """Writes kwic.tsv: one row per occurrence of a formula, in context.
+
+        Reads the clustering rather than the corpus: a cluster is a formula and
+        its members are the charters that carry it, variants included, so the
+        occurrences of a formula are already known by the time this runs.
+        `kwic_query` picks which cluster (or clusters) to export and, where the
+        phrase can be found inside the window, narrows the keyword to it; without
+        a query the table is the corpus's whole formula inventory.
+        """
+        if not clusters or not clusters["records"]:
+            print("No cluster reached the minimum size; skipping the KWIC table.")
+            return
+        context = max(0, int(getattr(analyzer.args, 'kwic_context', 5) or 0))
+        raw_query = str(getattr(analyzer.args, 'kwic_query', '') or '').strip()
+        query = _folded_phrase(raw_query)
+        if raw_query and not query:
+            print(f"Warning: the KWIC query '{raw_query}' holds no comparable word "
+                  f"(see _folded_phrase); exporting every cluster instead.")
+        fuzz_floor = min(1.0, max(0.0, float(getattr(analyzer.args, 'kwic_query_fuzz', 0.85) or 0.0)))
+        scope = str(getattr(analyzer.args, 'kwic_scope', 'auto') or 'auto').lower()
+        if scope not in ('auto', 'cluster', 'phrase'):
+            print(f"Warning: unknown kwic_scope '{scope}'; using 'auto'.")
+            scope = 'auto'
+        # 'auto' is what a caller means by either request: a query asks for that
+        # phrase in context, no query asks for the formulas themselves.
+        narrow = bool(query) if scope == 'auto' else scope == 'phrase'
+        query_tokens = query.split()
+
+        scored = [(record, _query_score(str(record["core_folded"]), query))
+                  for record in clusters["records"]]
+        selected = [(record, score) for record, score in scored
+                    if not query or score >= fuzz_floor]
+        if query:
+            print(f"KWIC query '{raw_query}' (folded: '{query}'): "
+                  f"{len(selected)} of {len(scored)} cluster(s) at or above {fuzz_floor:.2f}.")
+            if not selected:
+                # A query that matches nothing is the common case of a mistyped or
+                # a differently-spelled formula, and the corpus's own closest
+                # cores are the answer to it: they are what the user would have
+                # had to read clusters.tsv for.
+                print("The closest formulas in this corpus are:")
+                for record, score in sorted(scored, key=lambda item: -item[1])[:5]:
+                    print(f"  {score:.2f}  cluster {record['id']}: "
+                          f"{str(record['core_display'])[:90]}")
+        else:
+            print(f"Generating KWIC for all {len(selected)} cluster(s), "
+                  f"{context} word(s) of context.")
+
+        sides = {1: (analyzer.corpus, analyzer.file_paths),
+                 2: ((analyzer.corpus2 or analyzer.corpus),
+                     (analyzer.file_paths2 if analyzer.is_inter_comparison
+                      else analyzer.file_paths))}
+        documents: Dict[Tuple[int, int], Optional[Dict[str, object]]] = {}
+
+        def located(key: Tuple[int, int]) -> Optional[Dict[str, object]]:
+            # Read and located once per document, however many clusters it is in.
+            if key not in documents:
+                texts, paths = sides[key[0]]
+                documents[key] = locate_document(texts[key[1]], paths[key[1]])
+            return documents[key]
+
+        min_dup = int(getattr(analyzer.args, 'min_duplicate_tokens', 400) or 400)
+        rows: List[Dict[str, object]] = []
+        unlocated, unnarrowed = set(), 0
+        for record, score in selected:
+            kind = ('near-duplicate'
+                    if flame_clustering.is_near_duplicate(record, min_duplicate_tokens=min_dup)
+                    else 'formula')
+            for name, entry in sorted(record["doc_texts"].items()):
+                tokens = entry["tokens"]
+                key = entry.get("key")
+                doc = located(key) if key else None
+                # Offsets are only usable when the located document is token for
+                # token the one the spans were measured on. It is the same text
+                # tokenized by the same call, so this holds -- unless two corpora
+                # name a document identically, in which case `doc_texts` holds one
+                # of them under both names and a character offset would point into
+                # the wrong charter. The row then carries token indices alone.
+                if doc is not None and len(doc["tokens"]) != len(tokens):
+                    doc = None
+                if key and doc is None:
+                    unlocated.add(name)
+                for number, (span, windows) in enumerate(_merge_spans(entry["spans"]), start=1):
+                    keyword_span, keyword_scope = span, 'cluster-core'
+                    if narrow and query_tokens:
+                        found = _phrase_window(tokens, span, query_tokens)
+                        if found:
+                            keyword_span, keyword_scope = found, 'phrase'
+                        else:
+                            # The cluster carries the formula, this charter writes
+                            # it too differently to locate the phrase inside the
+                            # window. Reporting the window is right -- the
+                            # occurrence is real -- and the column says so.
+                            unnarrowed += 1
+                    left, right = _context_bounds(tokens, keyword_span[0], keyword_span[1], context)
+                    char = token_char_span(doc, keyword_span) if doc else None
+                    year = SimilarityVisualizer._extract_year_from_filename(name)
+                    detokenize = SimilarityVisualizer.detokenizer.detokenize
+                    rows.append({
+                        "cluster_id": record["id"], "kind": kind,
+                        "anchor": record.get("anchor") or '',
+                        "file": name, "side": key[0] if key else '',
+                        # 9999 is the sort key the HTML report uses for "no year
+                        # in the filename"; as metadata it is a wrong date, and an
+                        # empty cell is the truthful one.
+                        "year": '' if year == 9999 else year,
+                        "occurrence": number,
+                        "left": detokenize(tokens[left:keyword_span[0]]),
+                        "keyword": detokenize(tokens[keyword_span[0]:keyword_span[1]]),
+                        "right": detokenize(tokens[keyword_span[1]:right]),
+                        "keyword_scope": keyword_scope,
+                        "token_start": keyword_span[0], "token_end": keyword_span[1],
+                        "char_start": char[0] if char else None,
+                        "char_end": char[1] if char else None,
+                        "basis": doc["basis"] if doc else 'tokens',
+                        "pair_windows": windows,
+                        "core_formula": record["core_display"],
+                        "cluster_size": record["size"],
+                        "core_tokens": record["core_tokens"],
+                        "specificity": f"{float(record['specificity']):.2f}",
+                        "query_score": f"{score:.2f}",
+                    })
+        rows.sort(key=lambda row: (row["cluster_id"], row["file"], row["token_start"]))
+        rows = _merge_kwic_rows(rows)
+
+        with open("kwic.tsv", "w", encoding='utf-8') as f:
+            f.write('\t'.join(header for header, _key in _KWIC_COLUMNS) + '\n')
+            for row in rows:
+                f.write('\t'.join(_tsv_cell(row[key]) for _header, key in _KWIC_COLUMNS) + '\n')
+        # Counted over the *ids*, not over the cells: a merged row's cell holds a
+        # list of them (see _merge_kwic_rows), and counting cells would report
+        # "0", "1" and "0,1" as three clusters.
+        named_clusters = {cluster_id for row in rows
+                          for cluster_id in str(row["cluster_id"]).split(',')}
+        print(f"Generated kwic.tsv ({len(rows)} occurrence(s) in "
+              f"{len({row['file'] for row in rows})} document(s), "
+              f"{len(named_clusters)} cluster(s)).")
+        if unnarrowed:
+            print(f"  {unnarrowed} occurrence(s) kept the full core window: the queried "
+                  f"phrase could not be located inside it (KeywordScope=cluster-core).")
+        if unlocated:
+            print(f"  {len(unlocated)} document(s) carry token indices but no character "
+                  f"offsets: their text could not be tied to a file (Basis=tokens).")
+
+        if getattr(analyzer.args, 'kwic_tei', False):
+            annotated = [row for row in rows
+                         if row["basis"] == "file" and row["char_start"] is not None]
+            with open("kwic_tei.xml", "w", encoding='utf-8') as f:
+                f.write(_kwic_tei(rows, context=context, query=raw_query,
+                                  command=" ".join([os.path.basename(_LAUNCH_ARGV[0])]
+                                                   + _LAUNCH_ARGV[1:]),
+                                  generated=datetime.now().strftime("%Y-%m-%d %H:%M")))
+            print(f"Generated kwic_tei.xml ({len(annotated)} span(s)).")
+            if len(annotated) < len(rows):
+                print(f"  {len(rows) - len(annotated)} occurrence(s) left out: their offsets "
+                      f"are not offsets into a file (see the Basis column of kwic.tsv).")
 
 def main():
     print("--- Formulaic Language Analysis in Medieval Expressions ---")
@@ -2581,6 +3053,16 @@ def main():
 
                 if analyzer.args.gen_spans_jsonl:
                     SimilarityVisualizer.generate_spans_jsonl(analyzer, similarity_threshold=final_threshold, clusters=clusters)
+
+                # After the clustering it reads and before its report, which is
+                # the file last written: the KWIC table is one of the clustering's
+                # outputs, not an independent analysis.
+                if analyzer.args.gen_kwic:
+                    if clusters is None:
+                        print("Skipping the KWIC table: it is built from the clusters, "
+                              "and clustering is off (-gen_clusters).")
+                    else:
+                        SimilarityVisualizer.generate_kwic(analyzer, clusters)
 
                 if analyzer.args.gen_clusters:
                     SimilarityVisualizer.generate_cluster_report(analyzer, clusters)
