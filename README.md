@@ -233,3 +233,11 @@ Sennrich, R., Haddow, B., & Birch, A. (2016). Neural machine translation of rare
 ## License
 
 This project is licensed under the **Apache 2.0 License**.
+
+## Funding
+
+This software was developed within the project **DiDip – From Digital to Distant Diplomatics** (ERC, Grant agreement ID [101019327](https://doi.org/10.3030/101019327), 2022-01-01 – 2026-12-31).
+
+Funded by the European Union (ERC, DiDip, 101019327). Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Council. Neither the European Union nor the granting authority can be held responsible for them.
+
+**Version boundary.** Version 1.3.0 is the last release developed within the funding period of the DiDip project. Later versions are developed independently of the project funding.

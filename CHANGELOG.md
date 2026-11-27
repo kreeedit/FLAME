@@ -6,6 +6,10 @@ concept DOI [10.5281/zenodo.15805448](https://doi.org/10.5281/zenodo.15805448).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-27
+
+Git tag `v1.3.0`. Last release within the DiDip funding period (ERC grant 101019327).
+
 Documentation, benchmark packaging, metadata, and one report-layer fix. The similarity algorithm and its defaults are unchanged.
 
 ### Added
@@ -159,7 +163,8 @@ Zenodo: [10.5281/zenodo.15805449](https://doi.org/10.5281/zenodo.15805449). Git 
   vocabulary-size estimate, cosine similarity over raw feature counts, Otsu threshold,
   HTML/TSV/heatmap reports, and the Tkinter GUI.
 
-[Unreleased]: https://github.com/kreeedit/FLAME/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/kreeedit/FLAME/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/kreeedit/FLAME/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/kreeedit/FLAME/compare/GIU...v1.2.0
 [1.1.0]: https://github.com/kreeedit/FLAME/compare/BPE...GIU
 [1.0.0]: https://github.com/kreeedit/FLAME/releases/tag/BPE
