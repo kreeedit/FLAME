@@ -186,6 +186,7 @@ resolves to the latest release. To pin the exact code you ran, cite its version 
 
 | Version | Released | Version DOI |
 | --- | --- | --- |
+| 1.3.0 | 2026-11-27 | [10.5281/zenodo.24582865](https://doi.org/10.5281/zenodo.24582865) |
 | 1.2.0 | 2026-10-19 | [10.5281/zenodo.23473940](https://doi.org/10.5281/zenodo.23473940) |
 | 1.1.0 (Zenodo label `GIU`) | 2026-06-26 | [10.5281/zenodo.20932532](https://doi.org/10.5281/zenodo.20932532) |
 | 1.0.0 | 2025-07-04 | [10.5281/zenodo.15805449](https://doi.org/10.5281/zenodo.15805449) |

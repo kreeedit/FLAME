@@ -8,7 +8,7 @@ concept DOI [10.5281/zenodo.15805448](https://doi.org/10.5281/zenodo.15805448).
 
 ## [1.3.0] - 2026-11-27
 
-Git tag `v1.3.0`. Last release developed within the DiDip project.
+Zenodo: [10.5281/zenodo.24582865](https://doi.org/10.5281/zenodo.24582865). Git tag `v1.3.0`. Last release developed within the DiDip project.
 
 Documentation, benchmark packaging, metadata, and one report-layer fix. The similarity algorithm and its defaults are unchanged.
 
